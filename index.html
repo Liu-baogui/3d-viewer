@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D操作台 | 交互展示系统</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
-    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="css/font-awesome/css/all.min.css">
+    <script src="./js/libs/pako/pako.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -1014,8 +1014,8 @@
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+                "three": "./js/three.module.js",
+                "three/addons/": "./js/three/addons/"
             }
         }
     </script>
@@ -1024,12 +1024,14 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+    // DRACOLoader 和 OutlinePass 暂时使用 CDN，因为本地文件不存在
+    import { DRACOLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/DRACOLoader.js';
     import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
     import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
     import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
     import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-    import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+    import { OutlinePass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/OutlinePass.js';
+    import { MeshoptDecoder } from './js/libs/meshopt/meshopt_decoder.module.js';
     
     // 全局变量
     let scene, camera, renderer, controls, composer, bloomPass, outlinePass;
@@ -1093,7 +1095,7 @@
             id: 'default',
             name: '默认模型',
             description: '演示用默认模型',
-            path: 'my_model.glb'
+            path: 'models/default_model.glb'
         },
         {
             id: 'model1',
@@ -1126,7 +1128,7 @@
     function getDracoLoader() {
         if (!dracoLoader) {
             dracoLoader = new DRACOLoader();
-            dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+            dracoLoader.setDecoderPath('./js/libs/draco/');
         }
         return dracoLoader;
     }
@@ -1142,9 +1144,10 @@
     }
     
     // 加载模型函数（支持 .glb、.glb.gz 及 Draco 压缩网格）
-    function loadModel(modelPath = 'my_model.glb') {
+    function loadModel(modelPath = 'models/default_model.glb') {
         const loader = new GLTFLoader();
         loader.setDRACOLoader(getDracoLoader());
+        loader.setMeshoptDecoder(MeshoptDecoder);
         const isCompressed = /\.gz$/i.test(modelPath);
         
         const loadingEl = document.getElementById('loading');
@@ -1234,8 +1237,8 @@
                 <div style="color: #ff6b6b; text-align: center;">
                     <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 10px;"></i>
                     <p>模型加载失败</p>
-                    <p style="font-size: 0.8rem; margin-top: 10px;">请确保模型文件与HTML在同一目录</p>
-                    <button onclick="window.loadModel('my_model.glb')" style="margin-top: 15px; padding: 8px 15px; background: #4dabf7; border: none; border-radius: 5px; color: white; cursor: pointer;">重新加载</button>
+                    <p style="font-size: 0.8rem; margin-top: 10px;">请确保模型文件位于models目录中</p>
+                    <button onclick="window.loadModel('models/default_model.glb')" style="margin-top: 15px; padding: 8px 15px; background: #4dabf7; border: none; border-radius: 5px; color: white; cursor: pointer;">重新加载</button>
                 </div>
             `;
             
@@ -2592,7 +2595,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         initModelSelector();
         
         // 加载默认模型
-        loadModel('my_model.glb');
+        loadModel('models/default_model.glb');
         
         // 添加事件监听
         window.addEventListener('resize', onWindowResize);
