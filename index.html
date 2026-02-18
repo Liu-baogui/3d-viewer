@@ -1676,7 +1676,7 @@
                           originalMaterial.normalMap ||
                           originalMaterial.aoMap;
         
-        // 只对屏幕保留烘焙贴图，其他类型使用标准材质
+        // 对屏幕保留烘焙贴图
         if (type === 'screen' && hasTexture) {
             console.log(`${type} 有烘焙贴图，保留原始材质: ${mesh.name}`);
             
@@ -1686,8 +1686,39 @@
             
             // 创建增强材质（基于原始烘焙材质）
             createEnhancedBakedMaterial(mesh, type);
-        } else {
-            // 其他类型或无烘焙贴图，使用标准材质
+        } 
+        // 对有纹理的门，保留原始纹理
+        else if ((type === 'cabinetDoor' || type === 'slidingDoor') && hasTexture) {
+            console.log(`${type} 有纹理贴图，保留原始纹理: ${mesh.name}`);
+            
+            // 保存原始材质
+            mesh.userData.originalMaterial = originalMaterial.clone();
+            mesh.userData.hasBakedTexture = true;
+            
+            // 创建基于原始纹理的增强材质
+            const enhancedMaterial = new THREE.MeshStandardMaterial({
+                map: originalMaterial.map,
+                emissiveMap: originalMaterial.emissiveMap,
+                roughnessMap: originalMaterial.roughnessMap,
+                metalnessMap: originalMaterial.metalnessMap,
+                normalMap: originalMaterial.normalMap,
+                aoMap: originalMaterial.aoMap,
+                color: originalMaterial.color || 0x3a4558,
+                metalness: 0.4,
+                roughness: 0.6,
+                transparent: originalMaterial.transparent || false,
+                opacity: originalMaterial.opacity || 1.0,
+                envMapIntensity: 0.2,
+                side: THREE.DoubleSide
+            });
+            
+            enhancedMaterial.envMap = envMap;
+            enhancedMaterial.needsUpdate = true;
+            
+            mesh.material = enhancedMaterial;
+        }
+        // 其他类型或无烘焙贴图，使用标准材质
+        else {
             console.log(`${type} 使用标准材质: ${mesh.name}`);
             if (type === 'cabinetDoor') {
                 applyCabinetDoorMaterial(mesh);
@@ -1750,8 +1781,8 @@
             if (child.isMesh) {
                 const meshName = child.name ? child.name.toLowerCase() : '';
                 
-                // 跳过已经处理的柜门和抽屉
-                if (child.userData && (child.userData.type === 'cabinetDoor' || child.userData.type === 'drawer')) {
+                // 跳过已经处理的柜门、抽屉和推拉门
+                if (child.userData && (child.userData.type === 'cabinetDoor' || child.userData.type === 'drawer' || child.userData.type === 'slidingDoor')) {
                     return;
                 }
                 
