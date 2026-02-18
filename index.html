@@ -880,13 +880,18 @@
                 
                 <div style="margin-top: 15px;">
                     <p style="color: #8a9bb8; font-size: 0.9rem; margin-bottom: 10px;">
-                        上传HDR环境贴图文件
+                        选择HDR环境贴图
                     </p>
                     
-                    <label class="file-upload-btn">
-                        <input type="file" id="hdr-file" accept=".hdr,.exr">
-                        <i class="fas fa-cloud-upload-alt"></i> 上传HDR环境贴图
-                    </label>
+                    <div class="model-select-container">
+                        <select id="hdr-select" class="model-select">
+                            <option value="" disabled selected>选择环境贴图...</option>
+                            <!-- 环境贴图选项将通过JavaScript动态生成 -->
+                        </select>
+                        <div class="model-select-arrow">
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                    </div>
                     
                     <div class="hdr-info" id="hdr-info">
                         <div class="hdr-info-item">
@@ -1089,37 +1094,38 @@
     let drawers = [];
     const drawerMoveDistance = -200;
     
-    // 模型列表
-    const modelList = [
+    // 推拉门状态
+    let slidingDoors = [];
+    
+    // 模型列表（初始为空，将通过检测本地models文件夹动态填充）
+    let modelList = [];
+    
+    // 环境贴图列表
+    const envMapList = [
         {
             id: 'default',
-            name: '默认模型',
-            description: '演示用默认模型',
-            path: 'models/default_model.glb'
+            name: '默认环境',
+            path: null
         },
         {
-            id: 'model1',
-            name: '操作台1',
-            description: '现代简约风格设计',
-            path: 'models/model1.glb'
+            id: 'env1',
+            name: '工作室环境',
+            path: 'env/studio.hdr'
         },
         {
-            id: 'model2',
-            name: '操作台2',
-            description: '工业风格坚固耐用',
-            path: 'models/model2.glb'
+            id: 'env2',
+            name: '户外环境',
+            path: 'env/outdoor.hdr'
         },
         {
-            id: 'model3',
-            name: '操作台3',
-            description: '科技感智能设备',
-            path: 'models/model3.glb'
+            id: 'env3',
+            name: '夜晚环境',
+            path: 'env/night.hdr'
         },
         {
-            id: 'model4',
-            name: '操作台4',
-            description: '医疗设备专用',
-            path: 'models/model4.glb'
+            id: 'env4',
+            name: '工业环境',
+            path: 'env/industrial.hdr'
         }
     ];
     
@@ -1179,6 +1185,7 @@
         
         cabinetDoors = [];
         drawers = [];
+        slidingDoors = [];
         
         function onModelLoaded(gltf) {
             model = gltf.scene;
@@ -1316,23 +1323,91 @@
         }
     }
     
+    // 检测本地models文件夹中的模型文件
+    function detectLocalModels() {
+        return new Promise((resolve) => {
+            const potentialModels = [
+                { id: 'default', name: '默认模型', description: '演示用默认模型', path: 'models/default_model.glb' },
+                { id: 'model1', name: '操作台1', description: '现代简约风格设计', path: 'models/model1.glb' },
+                { id: 'model2', name: '操作台2', description: '工业风格坚固耐用', path: 'models/model2.glb' },
+                { id: 'model3', name: '操作台3', description: '科技感智能设备', path: 'models/model3.glb' },
+                { id: 'model4', name: '操作台4', description: '医疗设备专用', path: 'models/model4.glb' },
+                { id: 'model5', name: '操作台5', description: '多功能操作台', path: 'models/model5.glb' },
+                { id: 'model6', name: '操作台6', description: '专业级操作台', path: 'models/model6.glb' }
+            ];
+            
+            const validModels = [];
+            let checkedCount = 0;
+            const totalModels = potentialModels.length;
+            
+            potentialModels.forEach((modelItem) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('HEAD', modelItem.path);
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        validModels.push(modelItem);
+                    }
+                    checkedCount++;
+                    if (checkedCount === totalModels) {
+                        modelList = validModels;
+                        resolve(validModels);
+                    }
+                };
+                xhr.onerror = function() {
+                    checkedCount++;
+                    if (checkedCount === totalModels) {
+                        modelList = validModels;
+                        resolve(validModels);
+                    }
+                };
+                xhr.send();
+            });
+        });
+    }
+    
     // 初始化模型选择器
-    function initModelSelector() {
+    async function initModelSelector() {
         const modelSelect = document.getElementById('model-select');
         
-        // 清空现有选项
-        modelSelect.innerHTML = '<option value="" disabled selected>选择模型...</option>';
+        // 显示加载状态
+        modelSelect.innerHTML = '<option value="" disabled selected>检测模型中...</option>';
         
-        // 添加模型选项
-        modelList.forEach((modelItem, index) => {
-            const option = document.createElement('option');
-            option.value = modelItem.path;
-            option.textContent = modelItem.name;
-            if (index === 0) {
+        try {
+            // 检测本地模型
+            await detectLocalModels();
+            
+            // 清空现有选项
+            modelSelect.innerHTML = '<option value="" disabled selected>选择模型...</option>';
+            
+            // 添加模型选项
+            if (modelList.length > 0) {
+                modelList.forEach((modelItem, index) => {
+                    const option = document.createElement('option');
+                    option.value = modelItem.path;
+                    option.textContent = modelItem.name;
+                    if (index === 0) {
+                        option.selected = true;
+                    }
+                    modelSelect.appendChild(option);
+                });
+            } else {
+                // 如果没有检测到模型，添加一个默认选项
+                const option = document.createElement('option');
+                option.value = 'models/default_model.glb';
+                option.textContent = '默认模型（尝试加载）';
                 option.selected = true;
+                modelSelect.appendChild(option);
             }
+        } catch (error) {
+            console.error('检测模型时出错:', error);
+            // 出错时添加默认选项
+            modelSelect.innerHTML = '<option value="" disabled selected>选择模型...</option>';
+            const option = document.createElement('option');
+            option.value = 'models/default_model.glb';
+            option.textContent = '默认模型';
+            option.selected = true;
             modelSelect.appendChild(option);
-        });
+        }
         
         // 添加事件监听
         modelSelect.addEventListener('change', function() {
@@ -1343,11 +1418,43 @@
         });
     }
     
-    // 专门识别柜门和抽屉（函数）
+    // 初始化HDR选择器
+    function initHDRSelector() {
+        const hdrSelect = document.getElementById('hdr-select');
+        
+        // 清空现有选项
+        hdrSelect.innerHTML = '<option value="" disabled selected>选择环境贴图...</option>';
+        
+        // 添加环境贴图选项
+        envMapList.forEach((envItem) => {
+            const option = document.createElement('option');
+            option.value = envItem.path;
+            option.textContent = envItem.name;
+            hdrSelect.appendChild(option);
+        });
+        
+        // 添加事件监听
+        hdrSelect.addEventListener('change', function() {
+            const selectedPath = this.value;
+            const selectedEnv = envMapList.find(env => env.path === selectedPath);
+            
+            if (selectedPath) {
+                loadHDRTexture(selectedPath, selectedEnv.name);
+            } else {
+                // 恢复默认环境
+                clearEnvMap();
+                document.getElementById('hdr-info').classList.remove('visible');
+                document.getElementById('current-hdr-name').textContent = '默认环境';
+            }
+        });
+    }
+    
+    // 专门识别柜门、抽屉和推拉门（函数）
     function identifyDoorsAndDrawers(object) {
-        console.log('=== 开始识别柜门和抽屉 ===');
+        console.log('=== 开始识别柜门、抽屉和推拉门 ===');
         let doorCount = 0;
         let drawerCount = 0;
+        let slidingDoorCount = 0;
         
         // 首先查找Group对象
         object.traverse((child) => {
@@ -1421,6 +1528,45 @@
                 
                 console.log(`抽屉组 ${child.name} 已设置`);
             }
+            
+            // 识别推拉门Group（包含door但不是cabinetdoor的名称）
+                if (childName.includes('door') && !childName.includes('cabinetdoor') && (child.isGroup || child.isObject3D)) {
+                    console.log(`发现推拉门组: ${child.name}`);
+                    slidingDoorCount++;
+                    
+                    // 添加用户数据到Group，moveAxis 为局部 X 轴 (1,0,0)
+                    child.userData = {
+                        type: 'slidingDoor',
+                        initialPosition: child.position.clone(),
+                        open: false,
+                        moveAxis: new THREE.Vector3(1, 0, 0),
+                        moveDistance: 450
+                    };
+                    
+                    // 将推拉门添加到数组中
+                    slidingDoors.push(child);
+                    
+                    // 遍历子网格，设置用户数据以便点击检测
+                    child.traverse((meshChild) => {
+                        if (meshChild.isMesh) {
+                            // 保存父组引用
+                            meshChild.userData = meshChild.userData || {};
+                            meshChild.userData.parentGroup = child;
+                            meshChild.userData.type = 'slidingDoor';
+                            
+                            // 关键修复：保留网格的烘焙贴图材质
+                            preserveBakedMaterial(meshChild, 'slidingDoor');
+                            
+                            // 添加到材质组（用于点击检测）
+                            if (!materialGroups.slidingDoor) {
+                                materialGroups.slidingDoor = [];
+                            }
+                            materialGroups.slidingDoor.push(meshChild);
+                        }
+                    });
+                    
+                    console.log(`推拉门组 ${child.name} 已设置`);
+                }
         });
         
         // 其次，检查是否有独立的Mesh（向后兼容）
@@ -1481,10 +1627,39 @@
                     
                     console.log(`独立抽屉Mesh ${child.name} 已设置`);
                 }
+                
+                // 识别独立的推拉门Mesh（包含door但不是cabinetdoor的名称）
+                if (meshName.includes('door') && !meshName.includes('cabinetdoor')) {
+                    console.log(`发现独立推拉门Mesh: ${child.name}`);
+                    slidingDoorCount++;
+                    
+                    // 设置用户数据
+                    child.userData = {
+                        type: 'slidingDoor',
+                        initialPosition: child.position.clone(),
+                        open: false,
+                        moveAxis: new THREE.Vector3(1, 0, 0),
+                        moveDistance: 450
+                    };
+                    
+                    // 将推拉门添加到数组中
+                    slidingDoors.push(child);
+                    
+                    // 关键修复：保留网格的烘焙贴图材质
+                    preserveBakedMaterial(child, 'slidingDoor');
+                    
+                    // 添加到材质组
+                    if (!materialGroups.slidingDoor) {
+                        materialGroups.slidingDoor = [];
+                    }
+                    materialGroups.slidingDoor.push(child);
+                    
+                    console.log(`独立推拉门Mesh ${child.name} 已设置`);
+                }
             }
         });
         
-        console.log(`识别完成: 找到 ${doorCount} 个柜门, ${drawerCount} 个抽屉`);
+        console.log(`识别完成: 找到 ${doorCount} 个柜门, ${drawerCount} 个抽屉, ${slidingDoorCount} 个推拉门`);
     }
     
     // 关键函数：保留烘焙贴图材质
@@ -1501,7 +1676,8 @@
                           originalMaterial.normalMap ||
                           originalMaterial.aoMap;
         
-        if (hasTexture) {
+        // 只对屏幕保留烘焙贴图，其他类型使用标准材质
+        if (type === 'screen' && hasTexture) {
             console.log(`${type} 有烘焙贴图，保留原始材质: ${mesh.name}`);
             
             // 保存原始材质
@@ -1511,12 +1687,23 @@
             // 创建增强材质（基于原始烘焙材质）
             createEnhancedBakedMaterial(mesh, type);
         } else {
-            // 没有烘焙贴图，使用标准材质
-            console.log(`${type} 无烘焙贴图，使用标准材质: ${mesh.name}`);
+            // 其他类型或无烘焙贴图，使用标准材质
+            console.log(`${type} 使用标准材质: ${mesh.name}`);
             if (type === 'cabinetDoor') {
                 applyCabinetDoorMaterial(mesh);
             } else if (type === 'drawer') {
                 applyDrawerMaterial(mesh);
+            } else if (type === 'slidingDoor') {
+                // 为推拉门创建标准材质
+                mesh.material = new THREE.MeshStandardMaterial({
+                    color: mesh.material.color || 0x3a4558,
+                    metalness: 0.4,
+                    roughness: 0.6,
+                    transparent: false,
+                    opacity: 1.0,
+                    envMapIntensity: 0.2,
+                    side: THREE.DoubleSide
+                });
             }
         }
     }
@@ -1588,30 +1775,23 @@
                     return;
                 }
                 
-                // 其他有烘焙贴图的部件
+                // 其他有烘焙贴图的部件 - 不使用烘焙材质，使用标准材质
                 if (hasBakedTexture) {
-                    console.log(`保留烘焙材质: ${child.name}`);
+                    console.log(`忽略烘焙材质，使用标准材质: ${child.name}`);
                     
-                    // 保存原始材质
-                    child.userData = child.userData || {};
-                    child.userData.hasBakedTexture = true;
-                    child.userData.originalMaterial = child.material.clone();
-                    
-                    // 轻微增强效果但不破坏贴图
-                    child.material.envMap = envMap;
-                    child.material.envMapIntensity = 0.3;
-                    child.material.needsUpdate = true;
-                    
-                    // 根据名称分类
+                    // 根据名称分类并使用标准材质
                     if (meshName.includes('metal')) {
                         materialGroups.metal.push(child);
-                        child.userData.type = 'metal';
+                        child.userData = { type: 'metal' };
+                        applyMetalMaterial(child);
                     } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
                         materialGroups.paint.push(child);
-                        child.userData.type = 'paint';
+                        child.userData = { type: 'paint' };
+                        applyPaintMaterial(child);
                     } else if (meshName.includes('emit') || meshName.includes('light') || meshName.includes('led')) {
                         materialGroups.emit.push(child);
-                        child.userData.type = 'emit';
+                        child.userData = { type: 'emit' };
+                        applyEmitMaterial(child);
                     }
                     
                     processedCount++;
@@ -1672,7 +1852,9 @@
             
             // 创建关闭状态材质（基于原始材质）
             const offMaterial = originalMaterial.clone();
-            offMaterial.color = new THREE.Color(0x050510); // 非常暗
+            offMaterial.color = new THREE.Color(0x2a2a3a); // 更亮一些，带点暗蓝色调
+            offMaterial.metalness = 0.5; // 增加金属度，增强反光效果
+            offMaterial.roughness = 0.5; // 调整粗糙度，使反光更均匀
             offMaterial.emissive = new THREE.Color(0x000000);
             offMaterial.emissiveIntensity = 0;
             offMaterial.needsUpdate = true;
@@ -1715,9 +1897,9 @@
             // 创建关闭状态材质
             const offMaterial = new THREE.MeshStandardMaterial({
                 map: originalMaterial.map,
-                color: new THREE.Color(0x050510),
-                metalness: 0.1,
-                roughness: 0.9,
+                color: new THREE.Color(0x2a2a3a), // 更亮一些，带点暗蓝色调
+                metalness: 0.5, // 增加金属度，增强反光效果
+                roughness: 0.5, // 调整粗糙度，使反光更均匀
                 emissive: new THREE.Color(0x000000),
                 emissiveIntensity: 0,
                 transparent: originalMaterial.transparent || false,
@@ -1831,6 +2013,53 @@
             opacity: 1.0,
             envMapIntensity: 0.2,
             side: THREE.DoubleSide
+        });
+    }
+    
+    // 加载HDR纹理
+    function loadHDRTexture(path, name) {
+        const hdrLoader = new RGBELoader();
+        
+        hdrLoader.load(
+            path,
+            function(texture) {
+                envMap = texture;
+                envMap.mapping = THREE.EquirectangularReflectionMapping;
+                
+                scene.traverse((child) => {
+                    if (child.isMesh && child.material) {
+                        if ((child.material.isMeshStandardMaterial || child.material.isMeshPhysicalMaterial) && 
+                            child.userData && child.userData.type !== 'screen') {
+                            child.material.envMap = envMap;
+                            child.material.envMapIntensity = envIntensity;
+                            child.material.needsUpdate = true;
+                        }
+                    }
+                });
+                
+                document.getElementById('hdr-info').classList.add('visible');
+                document.getElementById('current-hdr-name').textContent = name;
+            },
+            undefined,
+            function(error) {
+                console.warn('HDR环境贴图加载失败:', error);
+                alert('HDR文件加载失败，请确保文件路径正确');
+            }
+        );
+    }
+    
+    // 清除环境贴图
+    function clearEnvMap() {
+        envMap = null;
+        
+        scene.traverse((child) => {
+            if (child.isMesh && child.material) {
+                if ((child.material.isMeshStandardMaterial || child.material.isMeshPhysicalMaterial) && 
+                    child.userData && child.userData.type !== 'screen') {
+                    child.material.envMap = null;
+                    child.material.needsUpdate = true;
+                }
+            }
         });
     }
     
@@ -2175,6 +2404,112 @@
     
     requestAnimationFrame(animateDrawer);
 }
+
+    // 切换推拉门状态（沿局部X轴移动450）
+    function toggleSlidingDoor(doorObject) {
+        if (!doorObject) {
+            console.warn('未找到推拉门对象');
+            return;
+        }
+        
+        console.log('切换推拉门:', doorObject.name, '是否为组:', doorObject.isGroup);
+        
+        // 获取实际的推拉门对象（如果是网格且有关联的父组，使用父组）
+        let actualDoor = doorObject;
+        if (doorObject.userData && doorObject.userData.parentGroup) {
+            actualDoor = doorObject.userData.parentGroup;
+            console.log('使用父组:', actualDoor.name);
+        }
+        
+        // 确保只处理被点击的推拉门，而不是所有推拉门
+        console.log('处理单个推拉门:', actualDoor.name);
+        
+        const doorOpen = !actualDoor.userData.open;
+        actualDoor.userData.open = doorOpen;
+        
+        if (!actualDoor.userData.initialPosition) {
+            // 保存初始位置
+            actualDoor.userData.initialPosition = actualDoor.position.clone();
+            console.log('保存初始位置:', actualDoor.userData.initialPosition);
+        }
+        
+        // 沿局部X轴移动推拉门
+        const moveDistance = actualDoor.userData.moveDistance || 450;
+        
+        // 计算局部X轴方向的位移
+        // 创建局部X轴方向向量
+        const localX = new THREE.Vector3(1, 0, 0);
+        // 获取推拉门的旋转矩阵
+        const rotationMatrix = new THREE.Matrix4().extractRotation(actualDoor.matrixWorld);
+        // 将局部X轴转换为世界空间
+        const worldX = localX.clone().applyMatrix4(rotationMatrix);
+        // 计算位移向量
+        const displacement = worldX.multiplyScalar(moveDistance);
+        
+        // 目标位置（基于初始位置）
+        const targetPosition = actualDoor.userData.initialPosition.clone();
+        if (doorOpen) {
+            targetPosition.add(displacement);
+            console.log(`推拉门打开，沿局部X轴移动: ${moveDistance} 单位`);
+            console.log('局部X轴方向:', localX.toArray());
+            console.log('世界X轴方向:', worldX.toArray());
+            console.log('位移向量:', displacement.toArray());
+        } else {
+            console.log('推拉门关闭，回到初始位置');
+        }
+        
+        console.log('当前位置:', actualDoor.position.toArray());
+        console.log('目标位置:', targetPosition.toArray());
+        
+        // 动画参数
+        const startPosition = actualDoor.position.clone();
+        const duration = 800; // 推拉门动画稍慢一些
+        let startTime = null;
+        
+        // 动画函数
+        function animateDoor(time) {
+            if (!startTime) startTime = time;
+            const elapsed = time - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // 缓动函数
+            const easedProgress = progress < 0.5 ? 
+                2 * progress * progress : 
+                -1 + (4 - 2 * progress) * progress;
+            
+            // 插值位置 - 只更新当前推拉门的位置
+            actualDoor.position.lerpVectors(startPosition, targetPosition, easedProgress);
+            
+            // 强制更新矩阵
+            actualDoor.updateMatrix();
+            actualDoor.updateMatrixWorld(true);
+            
+            // 更新所有子对象的矩阵
+            actualDoor.traverse((child) => {
+                if (child.isMesh) {
+                    child.updateMatrix();
+                    child.updateMatrixWorld(true);
+                }
+            });
+            
+            console.log(`动画进度: ${progress.toFixed(2)}, 当前位置:`, actualDoor.position.toArray());
+            
+            if (progress < 1) {
+                requestAnimationFrame(animateDoor);
+            } else {
+                actualDoor.position.copy(targetPosition);
+                
+                // 最终更新矩阵
+                actualDoor.updateMatrix();
+                actualDoor.updateMatrixWorld(true);
+                
+                console.log(`推拉门${doorOpen ? '打开' : '关闭'}完成，最终位置:`, actualDoor.position.toArray());
+            }
+        }
+        
+        // 使用动画
+        requestAnimationFrame(animateDoor);
+    }
     
 
     
@@ -2289,6 +2624,17 @@
         if (ambientLight) {
             ambientLight.intensity = envIntensity;
         }
+        
+        // 更新所有材质的环境光强度
+        scene.traverse((child) => {
+            if (child.isMesh && child.material) {
+                if ((child.material.isMeshStandardMaterial || child.material.isMeshPhysicalMaterial) && 
+                    child.userData && child.userData.type !== 'screen') {
+                    child.material.envMapIntensity = envIntensity;
+                    child.material.needsUpdate = true;
+                }
+            }
+        });
     }
     
     // 设置星空蓝背景
@@ -2427,7 +2773,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         return meshes;
     }
     
-    const INTERACTIVE_TYPES = ['screen', 'emit', 'cabinetDoor', 'drawer'];
+    const INTERACTIVE_TYPES = ['screen', 'emit', 'cabinetDoor', 'drawer', 'slidingDoor'];
     
     // 射线检测：只取最近的一个交点，且仅当该物体为可交互类型时才返回（被非交互物体遮挡则不命中）
     function getFirstHitInteractive() {
@@ -2470,6 +2816,8 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             toggleCabinetDoor(clickedObject);
         } else if (partType === 'drawer') {
             toggleDrawer(clickedObject);
+        } else if (partType === 'slidingDoor') {
+            toggleSlidingDoor(clickedObject);
         }
     }
     
@@ -2512,7 +2860,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     }
     
     // 初始化Three.js场景
-    function init() {
+    async function init() {
         // 创建场景
         scene = new THREE.Scene();
         
@@ -2591,8 +2939,11 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         // 创建阴影接收器
         createShadowCatcher();
         
-        // 初始化模型选择器
-        initModelSelector();
+        // 初始化模型选择器（异步）
+        await initModelSelector();
+        
+        // 初始化HDR选择器
+        initHDRSelector();
         
         // 加载默认模型
         loadModel('models/default_model.glb');
@@ -2772,49 +3123,12 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             }
         });
         
-        // HDR文件上传
-        document.getElementById('hdr-file').addEventListener('change', function(e) {
-            if (e.target.files.length > 0) {
-                const file = e.target.files[0];
-                
-                const hdrLoader = new RGBELoader();
-                const fileURL = URL.createObjectURL(file);
-                
-                hdrLoader.load(
-                    fileURL,
-                    function(texture) {
-                        envMap = texture;
-                        envMap.mapping = THREE.EquirectangularReflectionMapping;
-                        
-                        scene.traverse((child) => {
-                            if (child.isMesh && child.material) {
-                                if ((child.material.isMeshStandardMaterial || child.material.isMeshPhysicalMaterial) && 
-                                    child.userData && child.userData.type !== 'screen') {
-                                    child.material.envMap = envMap;
-                                    child.material.needsUpdate = true;
-                                }
-                            }
-                        });
-                        
-                        document.getElementById('hdr-info').classList.add('visible');
-                        document.getElementById('current-hdr-name').textContent = file.name;
-                        
-                        URL.revokeObjectURL(fileURL);
-                    },
-                    undefined,
-                    function(error) {
-                        console.warn('HDR环境贴图加载失败:', error);
-                        alert('HDR文件加载失败，请确保文件格式正确（.hdr或.exr格式）');
-                        URL.revokeObjectURL(fileURL);
-                    }
-                );
-            }
-        });
+        // HDR选择器已在initHDRSelector中初始化
     }
     
     // 页面加载完成后初始化
-    window.addEventListener('DOMContentLoaded', () => {
-        init();
+    window.addEventListener('DOMContentLoaded', async () => {
+        await init();
         initUIEvents();
         
         // 设置初始滑块值显示
