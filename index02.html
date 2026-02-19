@@ -1,0 +1,3193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D操作台 | 交互展示系统</title>
+    <link rel="stylesheet" href="css/font-awesome/css/all.min.css">
+    <script src="./js/libs/pako/pako.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #0a0a0f 0%, #151522 100%);
+            color: #e0e0ff;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            grid-template-rows: auto 1fr auto;
+            height: 100vh;
+            gap: 0;
+            max-width: 100%;
+            padding: 0;
+        }
+        
+        /* 头部样式 */
+        header {
+            grid-column: 1 / span 2;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 30px;
+            background: rgba(10, 10, 20, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(100, 150, 255, 0.1);
+            z-index: 100;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .logo-icon {
+            font-size: 1.8rem;
+            color: #4dabf7;
+            background: linear-gradient(90deg, #4dabf7, #748ffc);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .logo-text h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, #ffffff, #a5d8ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            letter-spacing: 1px;
+        }
+        
+        .logo-text p {
+            font-size: 0.85rem;
+            color: #8a9bb8;
+            margin-top: 3px;
+        }
+        
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .model-select-container {
+            position: relative;
+            min-width: 200px;
+        }
+        
+        .model-select {
+            width: 100%;
+            padding: 10px 15px;
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            color: #c5d5ff;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            padding-right: 35px;
+            transition: all 0.3s ease;
+        }
+        
+        .model-select:hover {
+            background: rgba(56, 189, 248, 0.1);
+            border-color: rgba(56, 189, 248, 0.4);
+        }
+        
+        .model-select:focus {
+            outline: none;
+            border-color: rgba(56, 189, 248, 0.8);
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+        }
+        
+        .model-select-arrow {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #4dabf7;
+            pointer-events: none;
+        }
+        
+        .view-controls {
+            display: flex;
+            gap: 12px;
+        }
+        
+        .view-btn {
+            padding: 10px 20px;
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            color: #c5d5ff;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .view-btn:hover {
+            background: rgba(56, 189, 248, 0.2);
+            border-color: rgba(56, 189, 248, 0.5);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(56, 189, 248, 0.2);
+        }
+        
+        .view-btn.active {
+            background: rgba(56, 189, 248, 0.3);
+            border-color: rgba(56, 189, 248, 0.8);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
+        }
+        
+        /* 3D视图区域 */
+        .viewer-section {
+            position: relative;
+            overflow: hidden;
+            background: #0a0a0f;
+        }
+        
+        #three-container {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .viewer-overlay {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            background: rgba(10, 10, 20, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 15px 20px;
+            border: 1px solid rgba(100, 150, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        }
+        
+        .model-info h3 {
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+            color: #a5d8ff;
+        }
+        
+        .model-info p {
+            font-size: 0.9rem;
+            color: #8a9bb8;
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            z-index: 10;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(77, 171, 247, 0.2);
+            border-top: 4px solid #4dabf7;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* 控制面板 */
+        .controls-section {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(10px);
+            padding: 30px;
+            border-left: 1px solid rgba(100, 150, 255, 0.1);
+            overflow-y: auto;
+            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
+        }
+        
+        .controls-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(100, 150, 255, 0.2);
+        }
+        
+        .controls-header i {
+            font-size: 1.3rem;
+            color: #4dabf7;
+        }
+        
+        .controls-header h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            background: linear-gradient(90deg, #a5d8ff, #748ffc);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        
+        .control-group {
+            background: rgba(30, 41, 59, 0.6);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(100, 150, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .control-group:hover {
+            border-color: rgba(100, 150, 255, 0.3);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .control-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .control-title i {
+            color: #4dabf7;
+            font-size: 1.1rem;
+        }
+        
+        .control-title h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #c5d5ff;
+        }
+        
+        .slider-container {
+            margin-bottom: 15px;
+        }
+        
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            color: #a5d5ff;
+        }
+        
+        .slider-value {
+            color: #4dabf7;
+            font-weight: 600;
+        }
+        
+        .slider {
+            width: 100%;
+            height: 6px;
+            -webkit-appearance: none;
+            background: linear-gradient(90deg, rgba(77, 171, 247, 0.2), rgba(77, 171, 247, 0.8));
+            border-radius: 3px;
+            outline: none;
+        }
+        
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4dabf7;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(77, 171, 247, 0.8);
+            border: 2px solid #ffffff;
+        }
+        
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        
+        .toggle-label {
+            font-size: 0.95rem;
+            color: #c5d5ff;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(100, 150, 255, 0.2);
+            border-radius: 34px;
+            transition: .4s;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 4px;
+            bottom: 4px;
+            background-color: #8a9bb8;
+            border-radius: 50%;
+            transition: .4s;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: rgba(77, 171, 247, 0.5);
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(24px);
+            background-color: #4dabf7;
+        }
+        
+        .instructions {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.8));
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 25px;
+            border-left: 4px solid #4dabf7;
+        }
+        
+        .instructions h3 {
+            color: #a5d8ff;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .instructions ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .instructions li {
+            margin-bottom: 10px;
+            padding-left: 25px;
+            position: relative;
+            color: #8a9bb8;
+            line-height: 1.5;
+        }
+        
+        .instructions li:before {
+            content: "•";
+            color: #4dabf7;
+            font-size: 1.5rem;
+            position: absolute;
+            left: 0;
+            top: -5px;
+        }
+        
+        /* 文件上传按钮样式 */
+        .file-upload-btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #4dabf7 0%, #748ffc 100%);
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            text-align: center;
+            transition: all 0.3s ease;
+            border: none;
+            width: 100%;
+            margin-top: 10px;
+        }
+        
+        .file-upload-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(77, 171, 247, 0.4);
+        }
+        
+        .file-upload-btn i {
+            margin-right: 8px;
+        }
+        
+        #model-file, #hdr-file {
+            display: none;
+        }
+        
+        /* HDR上传信息显示 */
+        .hdr-info {
+            background: rgba(20, 30, 50, 0.8);
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 10px;
+            font-size: 0.85rem;
+            display: none;
+        }
+        
+        .hdr-info.visible {
+            display: block;
+        }
+        
+        .hdr-info-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        
+        .hdr-info-label {
+            color: #a5d8ff;
+        }
+        
+        .hdr-info-value {
+            color: #4dabf7;
+            font-weight: 600;
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        /* 底部状态栏 */
+        footer {
+            grid-column: 1 / span 2;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 30px;
+            background: rgba(10, 10, 20, 0.8);
+            border-top: 1px solid rgba(100, 150, 255, 0.1);
+            font-size: 0.85rem;
+            color: #8a9bb8;
+        }
+        
+        .status-indicators {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #10b981;
+        }
+        
+        .status-dot.warning {
+            background-color: #f59e0b;
+        }
+        
+        .door-status-dot {
+            background-color: #8a9bb8;
+        }
+        
+        /* 移动端控制面板切换按钮 */
+        .mobile-controls-toggle {
+            display: none;
+            position: absolute;
+            top: 100px;
+            right: 20px;
+            z-index: 1000;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #4dabf7 0%, #748ffc 100%);
+            color: white;
+            border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* 响应式调整 */
+        @media (max-width: 1100px) {
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr auto auto;
+            }
+            
+            .controls-section {
+                position: fixed;
+                top: 0;
+                right: -400px;
+                width: 380px;
+                height: 100vh;
+                z-index: 999;
+                transition: right 0.3s ease;
+                border-left: none;
+                border-top: 1px solid rgba(100, 150, 255, 0.1);
+                max-height: none;
+                overflow-y: auto;
+            }
+            
+            .controls-section.active {
+                right: 0;
+                box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+            }
+            
+            header, footer {
+                grid-column: 1;
+            }
+            
+            .mobile-controls-toggle {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            /* 移动端优化 */
+            .viewer-section {
+                grid-row: 2;
+                height: calc(100vh - 130px);
+            }
+            
+            header {
+                padding: 15px 20px;
+                flex-wrap: wrap;
+                gap: 15px;
+            }
+            
+            .header-controls {
+                order: 3;
+                width: 100%;
+                justify-content: space-between;
+            }
+            
+            .model-select-container {
+                min-width: 150px;
+            }
+            
+            .logo-text h1 {
+                font-size: 1.4rem;
+            }
+            
+            .view-btn {
+                padding: 8px 15px;
+                font-size: 0.9rem;
+            }
+            
+            footer {
+                padding: 10px 15px;
+                font-size: 0.8rem;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            
+            .status-indicators {
+                gap: 10px;
+            }
+            
+            .viewer-overlay {
+                bottom: 20px;
+                left: 20px;
+                right: 20px;
+                padding: 12px 15px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .controls-section {
+                width: 100%;
+                right: -100%;
+            }
+            
+            .view-controls {
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+            
+            .view-btn {
+                flex: 1;
+                min-width: 120px;
+                justify-content: center;
+            }
+            
+            .logo-text h1 {
+                font-size: 1.2rem;
+            }
+            
+            .logo-text p {
+                font-size: 0.75rem;
+            }
+            
+            .viewer-section {
+                height: calc(100vh - 120px);
+            }
+        }
+        
+        @media (max-width: 480px) {
+            header {
+                padding: 12px 15px;
+            }
+            
+            .logo-text h1 {
+                font-size: 1.1rem;
+            }
+            
+            .view-btn {
+                padding: 6px 10px;
+                font-size: 0.8rem;
+                min-width: auto;
+            }
+            
+            .model-select {
+                padding: 8px 12px;
+                font-size: 0.8rem;
+            }
+            
+            .viewer-overlay {
+                bottom: 15px;
+                left: 15px;
+                right: 15px;
+                padding: 10px 12px;
+            }
+            
+            .model-info h3 {
+                font-size: 1rem;
+            }
+            
+            .model-info p {
+                font-size: 0.8rem;
+            }
+            
+            footer {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+        }
+        
+        /* 自定义滚动条 */
+        .controls-section::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .controls-section::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.3);
+            border-radius: 4px;
+        }
+        
+        .controls-section::-webkit-scrollbar-thumb {
+            background: rgba(77, 171, 247, 0.5);
+            border-radius: 4px;
+        }
+        
+        .controls-section::-webkit-scrollbar-thumb:hover {
+            background: rgba(77, 171, 247, 0.8);
+        }
+        
+        /* 控制面板遮罩 */
+        .controls-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 998;
+            backdrop-filter: blur(3px);
+        }
+        
+        .controls-overlay.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">
+                    <i class="fas fa-cube"></i>
+                </div>
+                <div class="logo-text">
+                    <h1>3D操作台展示系统</h1>
+                    <p>交互式产品可视化 | 材质识别 | 实时渲染</p>
+                </div>
+            </div>
+            
+            <div class="header-controls">
+                <div class="model-select-container">
+                    <select id="model-select" class="model-select">
+                        <option value="" disabled selected>选择模型...</option>
+                        <!-- 模型选项将通过JavaScript动态生成 -->
+                    </select>
+                    <div class="model-select-arrow">
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                </div>
+                
+                <div class="view-controls">
+                    <button id="reset-view-btn" class="view-btn">
+                        <i class="fas fa-crosshairs"></i>
+                        <span>重置视图</span>
+                    </button>
+                    <button id="toggle-lights-btn" class="view-btn">
+                        <i class="fas fa-lightbulb"></i>
+                        <span>泛光灯照明</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+        
+        <section class="viewer-section">
+            <div id="three-container"></div>
+            <div class="viewer-overlay">
+                <div class="model-info">
+                    <h3 id="model-name">操作台模型 V2.1</h3>
+                    <p id="model-description">金属/玻璃/油漆复合材质 | 支持交互</p>
+                </div>
+            </div>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p id="loading-text">正在加载模型...</p>
+                <div class="progress-bar-wrap" style="width: 200px; height: 8px; background: rgba(77,171,247,0.2); border-radius: 4px; overflow: hidden;">
+                    <div id="loading-progress" style="height: 100%; width: 0%; background: linear-gradient(90deg, #4dabf7, #748ffc); border-radius: 4px; transition: width 0.2s;"></div>
+                </div>
+                <p id="loading-percent" style="font-size: 0.9rem; color: #8a9bb8;">0%</p>
+            </div>
+        </section>
+        
+        <button class="mobile-controls-toggle" id="mobile-controls-toggle">
+            <i class="fas fa-sliders-h"></i>
+        </button>
+        
+        <div class="controls-overlay" id="controls-overlay"></div>
+        
+        <section class="controls-section" id="controls-section">
+            <div class="controls-header">
+                <i class="fas fa-sliders-h"></i>
+                <h2>材质与效果控制</h2>
+            </div>
+            
+            <div class="control-group">
+                <div class="control-title">
+                    <i class="fas fa-gem"></i>
+                    <h3>金属材质设置</h3>
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>金属反射</span>
+                        <span class="slider-value" id="metalness-value">0.85</span>
+                    </div>
+                    <input type="range" min="0" max="1" step="0.05" value="0.85" class="slider" id="metalness-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>金属粗糙度</span>
+                        <span class="slider-value" id="metal-roughness-value">0.25</span>
+                    </div>
+                    <input type="range" min="0" max="1" step="0.05" value="0.25" class="slider" id="metal-roughness-slider">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <div class="control-title">
+                    <i class="fas fa-paint-brush"></i>
+                    <h3>油漆材质设置</h3>
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>油漆亮度</span>
+                        <span class="slider-value" id="paint-brightness-value">0.8</span>
+                    </div>
+                    <input type="range" min="0.1" max="2.0" step="0.1" value="0.8" class="slider" id="paint-brightness-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>油漆粗糙度</span>
+                        <span class="slider-value" id="paint-roughness-value">0.5</span>
+                    </div>
+                    <input type="range" min="0.1" max="1.0" step="0.05" value="0.5" class="slider" id="paint-roughness-slider">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <div class="control-title">
+                    <i class="fas fa-sun"></i>
+                    <h3>灯光与环境</h3>
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>主光源强度</span>
+                        <span class="slider-value" id="light-intensity-value">1.2</span>
+                    </div>
+                    <input type="range" min="0.5" max="5.0" step="0.1" value="1.2" class="slider" id="light-intensity-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>左辅助光（冷色）</span>
+                        <span class="slider-value" id="left-light-value">0.8</span>
+                    </div>
+                    <input type="range" min="0" max="2.0" step="0.1" value="0.8" class="slider" id="left-light-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>右辅助光</span>
+                        <span class="slider-value" id="right-light-value">0.6</span>
+                    </div>
+                    <input type="range" min="0" max="2.0" step="0.1" value="0.6" class="slider" id="right-light-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>环境光强度</span>
+                        <span class="slider-value" id="env-intensity-value">0.5</span>
+                    </div>
+                    <input type="range" min="0" max="2" step="0.1" value="0.5" class="slider" id="env-intensity-slider">
+                </div>
+                
+                <div style="margin-top: 15px;">
+                    <p style="color: #8a9bb8; font-size: 0.9rem; margin-bottom: 10px;">
+                        选择HDR环境贴图
+                    </p>
+                    
+                    <div class="model-select-container">
+                        <select id="hdr-select" class="model-select">
+                            <option value="" disabled selected>选择环境贴图...</option>
+                            <!-- 环境贴图选项将通过JavaScript动态生成 -->
+                        </select>
+                        <div class="model-select-arrow">
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                    </div>
+                    
+                    <div class="hdr-info" id="hdr-info">
+                        <div class="hdr-info-item">
+                            <span class="hdr-info-label">当前环境:</span>
+                            <span class="hdr-info-value" id="current-hdr-name">默认环境</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <div class="control-title">
+                    <i class="fas fa-magic"></i>
+                    <h3>辉光效果</h3>
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>辉光强度</span>
+                        <span class="slider-value" id="bloom-strength-value">0.5</span>
+                    </div>
+                    <input type="range" min="0" max="2.0" step="0.1" value="0.5" class="slider" id="bloom-strength-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>辉光阈值</span>
+                        <span class="slider-value" id="bloom-threshold-value">0.8</span>
+                    </div>
+                    <input type="range" min="0.5" max="1.0" step="0.05" value="0.8" class="slider" id="bloom-threshold-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>辉光半径</span>
+                        <span class="slider-value" id="bloom-radius-value">0.7</span>
+                    </div>
+                    <input type="range" min="0.1" max="1.5" step="0.1" value="0.7" class="slider" id="bloom-radius-slider">
+                </div>
+                
+                <div class="toggle-container">
+                    <span class="toggle-label">启用辉光</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="bloom-enabled-toggle" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <div class="control-title">
+                    <i class="fas fa-shadows"></i>
+                    <h3>阴影优化</h3>
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>阴影分辨率</span>
+                        <span class="slider-value" id="shadow-resolution-value">1024</span>
+                    </div>
+                    <input type="range" min="512" max="4096" step="256" value="1024" class="slider" id="shadow-resolution-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>阴影偏移</span>
+                        <span class="slider-value" id="shadow-bias-value">-0.001</span>
+                    </div>
+                    <input type="range" min="-0.01" max="0.01" step="0.0005" value="-0.001" class="slider" id="shadow-bias-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>阴影模糊</span>
+                        <span class="slider-value" id="shadow-blur-value">1.0</span>
+                    </div>
+                    <input type="range" min="0" max="3" step="0.1" value="1.0" class="slider" id="shadow-blur-slider">
+                </div>
+                
+                <div class="toggle-container">
+                    <span class="toggle-label">软阴影</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="soft-shadow-toggle" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="instructions">
+                <h3><i class="fas fa-info-circle"></i> 交互指南</h3>
+                <ul>
+                    <li><strong>鼠标拖动</strong> - 旋转查看模型</li>
+                    <li><strong>鼠标滚轮</strong> - 缩放模型大小</li>
+                    <li><strong>点击任一显示屏</strong> - 点亮所有显示屏（增强贴图效果）</li>
+                    <li><strong>点击任一灯带</strong> - 点亮所有灯带（带光晕效果）</li>
+                    <li><strong>点击任一柜门(CabinetDoor_left/right)</strong> - 打开/关闭柜门（绕Z轴旋转85°）</li>
+                    <li><strong>点击任一抽屉(Drawer1/2)</strong> - 打开/关闭抽屉（沿Y轴移动-200mm）</li>
+                       <li><strong>泛光灯照明</strong> - 采用泛光灯加左右辅助光系统</li>
+                    <li><strong>模型切换</strong> - 使用顶部下拉菜单选择不同模型</li>
+                </ul>
+            </div>
+        </section>
+        
+        <footer>
+            <div class="copyright">
+                <p>&copy; 2023 3D操作台展示系统 | 基于Three.js构建 | 增强版</p>
+            </div>
+            <div class="status-indicators">
+                <div class="status-item">
+                    <div class="status-dot" id="model-status"></div>
+                    <span id="model-status-text">模型加载中</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot warning" id="interaction-status"></div>
+                    <span id="interaction-status-text">屏幕关闭</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot door-status-dot" id="door-status"></div>
+                    <span id="door-status-text">柜门关闭</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "./js/three.module.js",
+                "three/addons/": "./js/three/addons/"
+            }
+        }
+    </script>
+    
+    <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    // DRACOLoader 和 OutlinePass 暂时使用 CDN，因为本地文件不存在
+    import { DRACOLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/DRACOLoader.js';
+    import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+    import { OutlinePass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/OutlinePass.js';
+    import { MeshoptDecoder } from './js/libs/meshopt/meshopt_decoder.module.js';
+    
+    // 全局变量
+    let scene, camera, renderer, controls, composer, bloomPass, outlinePass;
+    let model = null;
+    let shadowCatcher = null;
+        let clock = new THREE.Clock();
+    let raycaster = new THREE.Raycaster();
+    let mouse = new THREE.Vector2();
+    let envMap = null;
+    let omniLights = [];
+    
+    // 灯光参数
+    let mainLightIntensity = 1.5;
+    let leftLightIntensity = 1.1;
+    let rightLightIntensity = 0.2;
+    let envIntensity = 0.7;
+    
+    // 金属材质参数
+    let metalness = 0.35;
+    let metalRoughness = 0.35;
+    
+    // 油漆材质参数
+    let paintBrightness = 0.8;
+    let paintRoughness = 0.1;
+    
+    // 辉光参数
+    let bloomStrength = 0.4;
+    let bloomThreshold = 0.8;
+    let bloomRadius = 0.7;
+    let bloomEnabled = true;
+    
+    // 屏幕参数
+    let screenOffBrightness = 0.1;
+    let screenOnBrightness = 2.0;
+
+    // 材质映射
+    let materialGroups = {
+        metal: [],
+        paint: [],
+        screen: [],
+        emit: [],
+        door: [],
+        drawer: []
+    };
+    
+    // 灯光引用
+    let mainLight, leftFillLight, rightFillLight, ambientLight;
+    let pointLight1, pointLight2, pointLight3; // 三个点光源
+    
+    // 柜门状态 - 修改为85°
+    let cabinetDoors = [];
+    const doorOpenAngle = 85 * (Math.PI / 180); // 85度
+    
+    // 抽屉状态
+    let drawers = [];
+    const drawerMoveDistance = -200;
+    
+    // 推拉门状态
+    let slidingDoors = [];
+    
+    // 模型列表（初始为空，将通过检测本地models文件夹动态填充）
+    let modelList = [];
+    
+    // 环境贴图列表
+    const envMapList = [
+        {
+            id: 'default',
+            name: '默认环境',
+            path: null
+        },
+        {
+            id: 'env1',
+            name: '工作室环境',
+            path: 'env/studio.hdr'
+        },
+        {
+            id: 'env2',
+            name: '户外环境',
+            path: 'env/outdoor.hdr'
+        },
+        {
+            id: 'env3',
+            name: '夜晚环境',
+            path: 'env/night.hdr'
+        },
+        {
+            id: 'env4',
+            name: '工业环境',
+            path: 'env/industrial.hdr'
+        }
+    ];
+    
+    // Draco 解码器（用于带 KHR_draco_mesh_compression 的 GLB）
+    let dracoLoader = null;
+    function getDracoLoader() {
+        if (!dracoLoader) {
+            dracoLoader = new DRACOLoader();
+            dracoLoader.setDecoderPath('./js/libs/draco/');
+        }
+        return dracoLoader;
+    }
+    
+    // 更新加载进度条
+    function setLoadingProgress(percent, text) {
+        const el = document.getElementById('loading-progress');
+        const percentEl = document.getElementById('loading-percent');
+        const textEl = document.getElementById('loading-text');
+        if (el) el.style.width = Math.min(100, Math.max(0, percent)) + '%';
+        if (percentEl) percentEl.textContent = Math.round(percent) + '%';
+        if (textEl && text) textEl.textContent = text;
+    }
+    
+    // 加载模型函数（支持 .glb、.glb.gz 及 Draco 压缩网格）
+    function loadModel(modelPath = 'models/default_model.glb') {
+        const loader = new GLTFLoader();
+        loader.setDRACOLoader(getDracoLoader());
+        loader.setMeshoptDecoder(MeshoptDecoder);
+        const isCompressed = /\.gz$/i.test(modelPath);
+        
+        const loadingEl = document.getElementById('loading');
+        loadingEl.style.display = 'flex';
+        loadingEl.innerHTML = `
+            <div class="spinner"></div>
+            <p id="loading-text">${isCompressed ? '正在加载压缩模型...' : '正在加载模型...'}</p>
+            <div class="progress-bar-wrap" style="width: 200px; height: 8px; background: rgba(77,171,247,0.2); border-radius: 4px; overflow: hidden;">
+                <div id="loading-progress" style="height: 100%; width: 0%; background: linear-gradient(90deg, #4dabf7, #748ffc); border-radius: 4px; transition: width 0.2s;"></div>
+            </div>
+            <p id="loading-percent" style="font-size: 0.9rem; color: #8a9bb8;">0%</p>
+        `;
+        setLoadingProgress(0, isCompressed ? '正在加载压缩模型...' : '正在加载模型...');
+        
+        if (model) {
+            scene.remove(model);
+            model = null;
+        }
+        
+        // 重置数组
+        materialGroups = {
+            metal: [],
+            paint: [],
+            screen: [],
+            emit: [],
+            door: [],
+            drawer: []
+        };
+        
+        cabinetDoors = [];
+        drawers = [];
+        slidingDoors = [];
+        
+        function onModelLoaded(gltf) {
+            model = gltf.scene;
+            scene.add(model);
+            
+            console.log('=== 模型加载完成 ===');
+            
+            processModelMaterials(model);
+            identifyDoorsAndDrawers(model);
+            
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scale = 5 / maxDim;
+            model.scale.setScalar(scale);
+            
+            model.position.sub(center.multiplyScalar(scale));
+            
+            const selectedModel = modelList.find(m => m.path === modelPath);
+            if (selectedModel) {
+                document.getElementById('model-name').textContent = selectedModel.name;
+                document.getElementById('model-description').textContent = selectedModel.description;
+            }
+            
+            document.getElementById('model-status').style.backgroundColor = '#10b981';
+            document.getElementById('model-status-text').textContent = '模型已加载';
+            
+            document.getElementById('loading').style.display = 'none';
+            
+            console.log('模型加载成功:', modelPath);
+            
+            updateMetalMaterials();
+            updatePaintMaterials();
+            
+            setTimeout(() => {
+                updateShadowPosition();
+            }, 100);
+            
+            updateLightIntensity();
+            updateBloomEffect();
+            
+            console.log('分组信息:');
+            console.log('- 屏幕:', materialGroups.screen.length);
+            console.log('- 金属:', materialGroups.metal.length);
+            console.log('- 油漆:', materialGroups.paint.length);
+            console.log('- 灯带:', materialGroups.emit.length);
+            console.log('- 柜门:', materialGroups.door.length);
+            console.log('- 抽屉:', materialGroups.drawer.length);
+        }
+        
+        function onModelError(error) {
+            console.error('模型加载失败:', error);
+            document.getElementById('loading').innerHTML = `
+                <div style="color: #ff6b6b; text-align: center;">
+                    <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 10px;"></i>
+                    <p>模型加载失败</p>
+                    <p style="font-size: 0.8rem; margin-top: 10px;">请确保模型文件位于models目录中</p>
+                    <button onclick="window.loadModel('models/default_model.glb')" style="margin-top: 15px; padding: 8px 15px; background: #4dabf7; border: none; border-radius: 5px; color: white; cursor: pointer;">重新加载</button>
+                </div>
+            `;
+            
+            document.getElementById('model-status').style.backgroundColor = '#f59e0b';
+            document.getElementById('model-status-text').textContent = '模型加载失败';
+            
+            createFallbackModel();
+            updateBloomEffect();
+        }
+        
+        if (isCompressed) {
+            // 压缩格式 .glb.gz：XHR 下载（带进度）→ 解压 → 解析
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', modelPath);
+            xhr.responseType = 'arraybuffer';
+            xhr.onprogress = function(e) {
+                if (e.lengthComputable && e.total > 0) {
+                    const p = (e.loaded / e.total) * 90;
+                    setLoadingProgress(p, '正在下载... ' + Math.round(p) + '%');
+                } else {
+                    setLoadingProgress(50, '正在下载... (' + (e.loaded / 1024).toFixed(1) + ' KB)');
+                }
+            };
+            xhr.onload = async function() {
+                if (xhr.status !== 200) {
+                    onModelError(new Error('HTTP ' + xhr.status));
+                    return;
+                }
+                const compressedBuffer = xhr.response;
+                if (!compressedBuffer || compressedBuffer.byteLength === 0) {
+                    onModelError(new Error('空文件'));
+                    return;
+                }
+                setLoadingProgress(92, '正在解压...');
+                try {
+                    let glbBuffer;
+                    const data = new Uint8Array(compressedBuffer);
+                    if (typeof pako !== 'undefined' && pako.ungzip) {
+                        let decompressed;
+                        try {
+                            decompressed = pako.ungzip(data);
+                        } catch (e) {
+                            decompressed = pako.inflate(data);
+                        }
+                        glbBuffer = decompressed.buffer.slice(decompressed.byteOffset, decompressed.byteOffset + decompressed.byteLength);
+                    } else {
+                        const stream = new Blob([compressedBuffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+                        glbBuffer = await new Response(stream).arrayBuffer();
+                    }
+                    setLoadingProgress(98, '解析模型...');
+                    loader.parse(glbBuffer, '', onModelLoaded, onModelError);
+                } catch (err) {
+                    console.error('解压失败:', err);
+                    onModelError(err);
+                }
+            };
+            xhr.onerror = function() { onModelError(new Error('网络错误')); };
+            xhr.send();
+        } else {
+            loader.load(
+                modelPath,
+                onModelLoaded,
+                function(xhr) {
+                    if (xhr.lengthComputable && xhr.total > 0) {
+                        const p = (xhr.loaded / xhr.total) * 100;
+                        setLoadingProgress(p, '正在加载模型...');
+                        console.log(p.toFixed(1) + '% loaded');
+                    } else {
+                        setLoadingProgress(50, '正在加载模型... (' + (xhr.loaded / 1024).toFixed(1) + ' KB)');
+                        console.log(xhr.loaded + ' bytes loaded');
+                    }
+                },
+                onModelError
+            );
+        }
+    }
+    
+    // 检测本地models文件夹中的模型文件
+    function detectLocalModels() {
+        return new Promise((resolve) => {
+            const potentialModels = [
+                { id: 'default', name: '默认模型', description: '演示用默认模型', path: 'models/default_model.glb' },
+                { id: 'model1', name: '操作台1', description: '现代简约风格设计', path: 'models/model1.glb' },
+                { id: 'model2', name: '操作台2', description: '工业风格坚固耐用', path: 'models/model2.glb' },
+                { id: 'model3', name: '操作台3', description: '科技感智能设备', path: 'models/model3.glb' },
+                { id: 'model4', name: '操作台4', description: '医疗设备专用', path: 'models/model4.glb' },
+                { id: 'model5', name: '操作台5', description: '多功能操作台', path: 'models/model5.glb' },
+                { id: 'model6', name: '操作台6', description: '专业级操作台', path: 'models/model6.glb' }
+            ];
+            
+            const validModels = [];
+            let checkedCount = 0;
+            const totalModels = potentialModels.length;
+            
+            potentialModels.forEach((modelItem) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('HEAD', modelItem.path);
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        validModels.push(modelItem);
+                    }
+                    checkedCount++;
+                    if (checkedCount === totalModels) {
+                        modelList = validModels;
+                        resolve(validModels);
+                    }
+                };
+                xhr.onerror = function() {
+                    checkedCount++;
+                    if (checkedCount === totalModels) {
+                        modelList = validModels;
+                        resolve(validModels);
+                    }
+                };
+                xhr.send();
+            });
+        });
+    }
+    
+    // 初始化模型选择器
+    async function initModelSelector() {
+        const modelSelect = document.getElementById('model-select');
+        
+        // 显示加载状态
+        modelSelect.innerHTML = '<option value="" disabled selected>检测模型中...</option>';
+        
+        try {
+            // 检测本地模型
+            await detectLocalModels();
+            
+            // 清空现有选项
+            modelSelect.innerHTML = '<option value="" disabled selected>选择模型...</option>';
+            
+            // 添加模型选项
+            if (modelList.length > 0) {
+                modelList.forEach((modelItem, index) => {
+                    const option = document.createElement('option');
+                    option.value = modelItem.path;
+                    option.textContent = modelItem.name;
+                    if (index === 0) {
+                        option.selected = true;
+                    }
+                    modelSelect.appendChild(option);
+                });
+            } else {
+                // 如果没有检测到模型，添加一个默认选项
+                const option = document.createElement('option');
+                option.value = 'models/default_model.glb';
+                option.textContent = '默认模型（尝试加载）';
+                option.selected = true;
+                modelSelect.appendChild(option);
+            }
+        } catch (error) {
+            console.error('检测模型时出错:', error);
+            // 出错时添加默认选项
+            modelSelect.innerHTML = '<option value="" disabled selected>选择模型...</option>';
+            const option = document.createElement('option');
+            option.value = 'models/default_model.glb';
+            option.textContent = '默认模型';
+            option.selected = true;
+            modelSelect.appendChild(option);
+        }
+        
+        // 添加事件监听
+        modelSelect.addEventListener('change', function() {
+            const selectedPath = this.value;
+            if (selectedPath) {
+                loadModel(selectedPath);
+            }
+        });
+    }
+    
+    // 初始化HDR选择器
+    function initHDRSelector() {
+        const hdrSelect = document.getElementById('hdr-select');
+        
+        // 清空现有选项
+        hdrSelect.innerHTML = '<option value="" disabled selected>选择环境贴图...</option>';
+        
+        // 添加环境贴图选项
+        envMapList.forEach((envItem) => {
+            const option = document.createElement('option');
+            option.value = envItem.path;
+            option.textContent = envItem.name;
+            hdrSelect.appendChild(option);
+        });
+        
+        // 添加事件监听
+        hdrSelect.addEventListener('change', function() {
+            const selectedPath = this.value;
+            const selectedEnv = envMapList.find(env => env.path === selectedPath);
+            
+            if (selectedPath) {
+                loadHDRTexture(selectedPath, selectedEnv.name);
+            } else {
+                // 恢复默认环境
+                clearEnvMap();
+                document.getElementById('hdr-info').classList.remove('visible');
+                document.getElementById('current-hdr-name').textContent = '默认环境';
+            }
+        });
+    }
+    
+    // 专门识别柜门、抽屉和推拉门（函数）
+    function identifyDoorsAndDrawers(object) {
+        console.log('=== 开始识别柜门、抽屉和推拉门 ===');
+        let doorCount = 0;
+        let drawerCount = 0;
+        let slidingDoorCount = 0;
+        
+        // 首先查找Group对象
+        object.traverse((child) => {
+            const childName = child.name ? child.name.toLowerCase() : '';
+            
+            // 识别柜门Group
+            if (childName.includes('cabinetdoor') && (child.isGroup || child.isObject3D)) {
+                console.log(`发现柜门组: ${child.name}`);
+                doorCount++;
+                
+                // 添加用户数据到Group
+                child.userData = {
+                    type: 'cabinetDoor',
+                    initialRotation: child.rotation.z || 0,
+                    open: false
+                };
+                
+                // 将Group添加到柜门数组
+                cabinetDoors.push(child);
+                
+                // 遍历子网格，设置用户数据以便点击检测
+                child.traverse((meshChild) => {
+                    if (meshChild.isMesh) {
+                        // 保存父组引用
+                        meshChild.userData = meshChild.userData || {};
+                        meshChild.userData.parentGroup = child;
+                        meshChild.userData.type = 'cabinetDoor';
+                        
+                        // 关键修复：保留网格的烘焙贴图材质
+                        preserveBakedMaterial(meshChild, 'cabinetDoor');
+                        
+                        // 添加到材质组（用于点击检测）
+                        materialGroups.door.push(meshChild);
+                    }
+                });
+                
+                console.log(`柜门组 ${child.name} 已设置`);
+            }
+            
+            // 识别抽屉Group（局部坐标：Z 轴向上，Y 轴正向朝向相机，抽屉沿局部 Y 轴移动 -200）
+            if (childName.includes('drawer') && (child.isGroup || child.isObject3D)) {
+                console.log(`发现抽屉组: ${child.name}`);
+                drawerCount++;
+                
+                // 添加用户数据到Group，moveAxis 为局部 Y 轴 (0,1,0)
+                child.userData = {
+                    type: 'drawer',
+                    initialPosition: child.position.clone(),
+                    open: false,
+                    moveAxis: new THREE.Vector3(0, 1, 0)
+                };
+                
+                // 将Group添加到抽屉数组
+                drawers.push(child);
+                
+                // 遍历子网格，设置用户数据以便点击检测
+                child.traverse((meshChild) => {
+                    if (meshChild.isMesh) {
+                        // 保存父组引用
+                        meshChild.userData = meshChild.userData || {};
+                        meshChild.userData.parentGroup = child;
+                        meshChild.userData.type = 'drawer';
+                        
+                        // 关键修复：保留网格的烘焙贴图材质
+                        preserveBakedMaterial(meshChild, 'drawer');
+                        
+                        // 添加到材质组（用于点击检测）
+                        materialGroups.drawer.push(meshChild);
+                    }
+                });
+                
+                console.log(`抽屉组 ${child.name} 已设置`);
+            }
+            
+            // 识别推拉门Group（包含door但不是cabinetdoor的名称）
+                if (childName.includes('door') && !childName.includes('cabinetdoor') && (child.isGroup || child.isObject3D)) {
+                    console.log(`发现推拉门组: ${child.name}`);
+                    slidingDoorCount++;
+                    
+                    // 添加用户数据到Group，moveAxis 为局部 X 轴 (1,0,0)
+                    child.userData = {
+                        type: 'slidingDoor',
+                        initialPosition: child.position.clone(),
+                        open: false,
+                        moveAxis: new THREE.Vector3(1, 0, 0),
+                        moveDistance: 450
+                    };
+                    
+                    // 将推拉门添加到数组中
+                    slidingDoors.push(child);
+                    
+                    // 遍历子网格，设置用户数据以便点击检测
+                    child.traverse((meshChild) => {
+                        if (meshChild.isMesh) {
+                            // 保存父组引用
+                            meshChild.userData = meshChild.userData || {};
+                            meshChild.userData.parentGroup = child;
+                            meshChild.userData.type = 'slidingDoor';
+                            
+                            // 关键修复：保留网格的烘焙贴图材质
+                            preserveBakedMaterial(meshChild, 'slidingDoor');
+                            
+                            // 添加到材质组（用于点击检测）
+                            if (!materialGroups.slidingDoor) {
+                                materialGroups.slidingDoor = [];
+                            }
+                            materialGroups.slidingDoor.push(meshChild);
+                        }
+                    });
+                    
+                    console.log(`推拉门组 ${child.name} 已设置`);
+                }
+        });
+        
+        // 其次，检查是否有独立的Mesh（向后兼容）
+        object.traverse((child) => {
+            if (child.isMesh) {
+                const meshName = child.name ? child.name.toLowerCase() : '';
+                
+                // 如果这个Mesh已经通过父组处理过，跳过
+                if (child.userData && child.userData.parentGroup) {
+                    return;
+                }
+                
+                // 识别独立的柜门Mesh
+                if (meshName.includes('cabinetdoor')) {
+                    console.log(`发现独立柜门Mesh: ${child.name}`);
+                    doorCount++;
+                    
+                    // 添加到柜门数组
+                    cabinetDoors.push(child);
+                    
+                    // 关键修复：保留网格的烘焙贴图材质
+                    preserveBakedMaterial(child, 'cabinetDoor');
+                    
+                    // 设置用户数据
+                    child.userData = {
+                        type: 'cabinetDoor',
+                        initialRotation: child.rotation.z || 0,
+                        open: false
+                    };
+                    
+                    // 添加到材质组
+                    materialGroups.door.push(child);
+                    
+                    console.log(`独立柜门Mesh ${child.name} 已设置`);
+                }
+                
+                // 识别独立的抽屉Mesh（沿局部 Y 轴移动）
+                if (meshName.includes('drawer')) {
+                    console.log(`发现独立抽屉Mesh: ${child.name}`);
+                    drawerCount++;
+                    
+                    // 添加到抽屉数组
+                    drawers.push(child);
+                    
+                    // 关键修复：保留网格的烘焙贴图材质
+                    preserveBakedMaterial(child, 'drawer');
+                    
+                    // 设置用户数据（先确保 userData 存在），moveAxis 为局部 Y 轴 (0,1,0)
+                    child.userData = child.userData || {};
+                    child.userData.type = 'drawer';
+                    child.userData.initialPosition = child.position.clone();
+                    child.userData.open = false;
+                    child.userData.moveAxis = new THREE.Vector3(0, 1, 0);
+
+                    
+                    // 添加到材质组
+                    materialGroups.drawer.push(child);
+                    
+                    console.log(`独立抽屉Mesh ${child.name} 已设置`);
+                }
+                
+                // 识别独立的推拉门Mesh（包含door但不是cabinetdoor的名称）
+                if (meshName.includes('door') && !meshName.includes('cabinetdoor')) {
+                    console.log(`发现独立推拉门Mesh: ${child.name}`);
+                    slidingDoorCount++;
+                    
+                    // 设置用户数据
+                    child.userData = {
+                        type: 'slidingDoor',
+                        initialPosition: child.position.clone(),
+                        open: false,
+                        moveAxis: new THREE.Vector3(1, 0, 0),
+                        moveDistance: 450
+                    };
+                    
+                    // 将推拉门添加到数组中
+                    slidingDoors.push(child);
+                    
+                    // 关键修复：保留网格的烘焙贴图材质
+                    preserveBakedMaterial(child, 'slidingDoor');
+                    
+                    // 添加到材质组
+                    if (!materialGroups.slidingDoor) {
+                        materialGroups.slidingDoor = [];
+                    }
+                    materialGroups.slidingDoor.push(child);
+                    
+                    console.log(`独立推拉门Mesh ${child.name} 已设置`);
+                }
+            }
+        });
+        
+        console.log(`识别完成: 找到 ${doorCount} 个柜门, ${drawerCount} 个抽屉, ${slidingDoorCount} 个推拉门`);
+    }
+    
+    // 关键函数：保留烘焙贴图材质
+    function preserveBakedMaterial(mesh, type) {
+        if (!mesh.material) return;
+        
+        const originalMaterial = mesh.material;
+        
+        // 检查是否有贴图（烘焙贴图的标志）
+        const hasTexture = originalMaterial.map || 
+                          originalMaterial.emissiveMap || 
+                          originalMaterial.roughnessMap || 
+                          originalMaterial.metalnessMap ||
+                          originalMaterial.normalMap ||
+                          originalMaterial.aoMap;
+        
+        // 对屏幕保留烘焙贴图
+        if (type === 'screen' && hasTexture) {
+            console.log(`${type} 有烘焙贴图，保留原始材质: ${mesh.name}`);
+            
+            // 保存原始材质
+            mesh.userData.originalMaterial = originalMaterial.clone();
+            mesh.userData.hasBakedTexture = true;
+            
+            // 创建增强材质（基于原始烘焙材质）
+            createEnhancedBakedMaterial(mesh, type);
+        } 
+        // 对有纹理的门，保留原始纹理
+        else if ((type === 'cabinetDoor' || type === 'slidingDoor') && hasTexture) {
+            console.log(`${type} 有纹理贴图，保留原始纹理: ${mesh.name}`);
+            
+            // 保存原始材质
+            mesh.userData.originalMaterial = originalMaterial.clone();
+            mesh.userData.hasBakedTexture = true;
+            
+            // 创建基于原始纹理的增强材质
+            const enhancedMaterial = new THREE.MeshStandardMaterial({
+                map: originalMaterial.map,
+                emissiveMap: originalMaterial.emissiveMap,
+                roughnessMap: originalMaterial.roughnessMap,
+                metalnessMap: originalMaterial.metalnessMap,
+                normalMap: originalMaterial.normalMap,
+                aoMap: originalMaterial.aoMap,
+                color: originalMaterial.color || 0x3a4558,
+                metalness: 0.4,
+                roughness: 0.6,
+                transparent: originalMaterial.transparent || false,
+                opacity: originalMaterial.opacity || 1.0,
+                envMapIntensity: 0.2,
+                side: THREE.DoubleSide
+            });
+            
+            enhancedMaterial.envMap = envMap;
+            enhancedMaterial.needsUpdate = true;
+            
+            mesh.material = enhancedMaterial;
+        }
+        // 其他类型或无烘焙贴图，使用标准材质
+        else {
+            console.log(`${type} 使用标准材质: ${mesh.name}`);
+            if (type === 'cabinetDoor') {
+                applyCabinetDoorMaterial(mesh);
+            } else if (type === 'drawer') {
+                applyDrawerMaterial(mesh);
+            } else if (type === 'slidingDoor') {
+                // 为推拉门创建标准材质
+                mesh.material = new THREE.MeshStandardMaterial({
+                    color: mesh.material.color || 0x3a4558,
+                    metalness: 0.4,
+                    roughness: 0.6,
+                    transparent: false,
+                    opacity: 1.0,
+                    envMapIntensity: 0.2,
+                    side: THREE.DoubleSide
+                });
+            }
+        }
+    }
+    
+    // 创建增强的烘焙材质（保留贴图）
+    function createEnhancedBakedMaterial(mesh, type) {
+        try {
+            const originalMaterial = mesh.userData.originalMaterial;
+            
+            // 克隆原始材质
+            const enhancedMaterial = originalMaterial.clone();
+            
+            // 轻微增强效果但不破坏贴图
+            enhancedMaterial.envMap = envMap;
+            enhancedMaterial.envMapIntensity = 0.3;
+            enhancedMaterial.needsUpdate = true;
+            
+            // 根据类型设置额外属性
+            if (type === 'cabinetDoor') {
+                enhancedMaterial.side = THREE.DoubleSide; // 柜门需要双面显示
+            }
+            
+            // 应用增强材质
+            mesh.material = enhancedMaterial;
+            
+            // 确保网格启用阴影
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            
+            console.log(`${type} 烘焙材质已增强: ${mesh.name}`);
+        } catch (error) {
+            console.error(`创建${type}增强材质失败:`, error);
+            // 回退到原始材质
+            mesh.material = mesh.userData.originalMaterial;
+        }
+    }
+    
+    // 处理模型材质
+    function processModelMaterials(object) {
+        console.log('=== 开始处理模型材质 ===');
+        let processedCount = 0;
+
+        object.traverse((child) => {
+            if (child.isMesh) {
+                const meshName = child.name ? child.name.toLowerCase() : '';
+                
+                // 跳过已经处理的柜门、抽屉和推拉门
+                if (child.userData && (child.userData.type === 'cabinetDoor' || child.userData.type === 'drawer' || child.userData.type === 'slidingDoor')) {
+                    return;
+                }
+                
+                // 检测是否有烘焙贴图
+                const hasBakedTexture = hasTexture(child.material);
+                
+                // 屏幕类处理
+                if (meshName.includes('screen') || meshName.includes('display') || meshName.includes('monitor')) {
+                    materialGroups.screen.push(child);
+                    
+                    if (hasBakedTexture) {
+                        console.log(`烘焙贴图屏幕: ${child.name}`);
+                        createBakedScreenMaterial(child);
+                    } else {
+                        applyOriginalScreenMaterial(child);
+                    }
+                    
+                    child.userData = child.userData || {};
+                    child.userData.type = 'screen';
+                    processedCount++;
+                    return;
+                }
+                
+                // 其他有烘焙贴图的部件 - 不使用烘焙材质，使用标准材质
+                if (hasBakedTexture) {
+                    console.log(`忽略烘焙材质，使用标准材质: ${child.name}`);
+                    
+                    // 根据名称分类并使用标准材质
+                    if (meshName.includes('metal')) {
+                        materialGroups.metal.push(child);
+                        child.userData = { type: 'metal' };
+                        applyMetalMaterial(child);
+                    } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
+                        materialGroups.paint.push(child);
+                        child.userData = { type: 'paint' };
+                        applyPaintMaterial(child);
+                    } else if (meshName.includes('emit') || meshName.includes('light') || meshName.includes('led')) {
+                        materialGroups.emit.push(child);
+                        child.userData = { type: 'emit' };
+                        applyEmitMaterial(child);
+                    }
+                    
+                    processedCount++;
+                    return;
+                }
+                
+                // 原始的非烘焙贴图处理逻辑
+                if (meshName.includes('metal')) {
+                    materialGroups.metal.push(child);
+                    child.userData = { type: 'metal' };
+                    applyMetalMaterial(child);
+                    processedCount++;
+                }
+                else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
+                    materialGroups.paint.push(child);
+                    child.userData = { type: 'paint' };
+                    applyPaintMaterial(child);
+                    processedCount++;
+                }
+                else if (meshName.includes('emit') || meshName.includes('blue') || meshName.includes('light') || meshName.includes('led')) {
+                    materialGroups.emit.push(child);
+                    child.userData = { type: 'emit' };
+                    applyEmitMaterial(child);
+                    processedCount++;
+                }
+
+                // 启用阴影
+                child.castShadow = true;
+                child.receiveShadow = true;
+            }
+        });
+
+        console.log(`材质处理完成，处理了 ${processedCount} 个网格`);
+    }
+    
+    // 检查材质是否有贴图
+    function hasTexture(material) {
+        if (!material) return false;
+        
+        const textureTypes = ['map', 'emissiveMap', 'roughnessMap', 'metalnessMap', 'normalMap', 'aoMap', 'lightMap'];
+        
+        for (const texType of textureTypes) {
+            if (material[texType]) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    // 为烘焙贴图屏幕创建材质
+    function createBakedScreenMaterial(mesh) {
+        try {
+            const originalMaterial = mesh.material;
+            const originalColor = originalMaterial.color ? originalMaterial.color.clone() : new THREE.Color(0xffffff);
+            
+            console.log(`创建烘焙屏幕材质: ${mesh.name}`);
+            
+            // 创建关闭状态材质（基于原始材质）
+            const offMaterial = originalMaterial.clone();
+            offMaterial.color = new THREE.Color(0x2a2a3a); // 更亮一些，带点暗蓝色调
+            offMaterial.metalness = 0.5; // 增加金属度，增强反光效果
+            offMaterial.roughness = 0.5; // 调整粗糙度，使反光更均匀
+            offMaterial.emissive = new THREE.Color(0x000000);
+            offMaterial.emissiveIntensity = 0;
+            offMaterial.needsUpdate = true;
+            
+            // 创建开启状态材质
+            const onMaterial = originalMaterial.clone();
+            onMaterial.color = originalColor.clone().multiplyScalar(2.5); // 增强亮度
+            onMaterial.emissive = new THREE.Color(0xffffff);
+            onMaterial.emissiveIntensity = 1.2;
+            onMaterial.needsUpdate = true;
+            
+            // 初始设置为关闭状态
+            mesh.material = offMaterial;
+            
+            // 存储用户数据
+            mesh.userData = {
+                type: 'screen',
+                active: false,
+                isBaked: true,
+                offMaterial: offMaterial,
+                onMaterial: onMaterial,
+                originalMaterial: originalMaterial,
+                originalColor: originalColor
+            };
+            
+            console.log(`烘焙屏幕材质创建完成: ${mesh.name}`);
+        } catch (error) {
+            console.error('创建烘焙屏幕材质失败:', error);
+            // 回退到普通屏幕处理
+            applyOriginalScreenMaterial(mesh);
+        }
+    }
+    
+    // 应用屏幕材质
+    function applyOriginalScreenMaterial(mesh) {
+        try {
+            const originalMaterial = mesh.material;
+            const originalColor = originalMaterial.color ? originalMaterial.color.clone() : new THREE.Color(0x111122);
+            
+            // 创建关闭状态材质
+            const offMaterial = new THREE.MeshStandardMaterial({
+                map: originalMaterial.map,
+                color: new THREE.Color(0x2a2a3a), // 更亮一些，带点暗蓝色调
+                metalness: 0.5, // 增加金属度，增强反光效果
+                roughness: 0.5, // 调整粗糙度，使反光更均匀
+                emissive: new THREE.Color(0x000000),
+                emissiveIntensity: 0,
+                transparent: originalMaterial.transparent || false,
+                opacity: originalMaterial.opacity || 1.0,
+                side: THREE.FrontSide
+            });
+            
+            // 创建开启状态材质
+            const onMaterial = new THREE.MeshStandardMaterial({
+                map: originalMaterial.map,
+                color: originalColor.clone().multiplyScalar(screenOnBrightness),
+                metalness: 0.05,
+                roughness: 0.1,
+                emissive: originalColor.clone().multiplyScalar(screenOnBrightness * 0.8),
+                emissiveIntensity: 0.8,
+                transparent: originalMaterial.transparent || false,
+                opacity: originalMaterial.opacity || 1.0,
+                side: THREE.FrontSide
+            });
+            
+            // 初始设置为关闭状态
+            mesh.material = offMaterial;
+            
+            // 存储用户数据
+            mesh.userData = {
+                type: 'screen',
+                active: false,
+                originalMaterial: originalMaterial,
+                offMaterial: offMaterial,
+                onMaterial: onMaterial,
+                originalMap: originalMaterial.map,
+                originalColor: originalColor
+            };
+        } catch (error) {
+            console.error('应用屏幕材质失败:', error);
+        }
+    }
+    
+    // 应用金属材质
+    function applyMetalMaterial(mesh) {
+        const originalColor = mesh.material.color ? mesh.material.color.clone() : new THREE.Color(0xaaaaaa);
+        
+        mesh.material = new THREE.MeshStandardMaterial({
+            color: originalColor,
+            metalness: metalness,
+            roughness: metalRoughness,
+            envMap: envMap
+        });
+        
+        // 存储原始颜色用于后续调整
+        mesh.userData = mesh.userData || {};
+        mesh.userData.originalColor = originalColor;
+    }
+    
+    // 应用油漆材质
+    function applyPaintMaterial(mesh) {
+        const originalColor = mesh.material.color ? mesh.material.color.clone() : new THREE.Color(0x1e3a8a);
+        
+        mesh.material = new THREE.MeshStandardMaterial({
+            color: originalColor.clone().multiplyScalar(paintBrightness),
+            metalness: 0.3,
+            roughness: paintRoughness,
+            envMap: envMap
+        });
+        
+        // 存储原始颜色用于后续调整
+        mesh.userData = mesh.userData || {};
+        mesh.userData.originalColor = originalColor;
+    }
+    
+    // 应用发光材质
+    function applyEmitMaterial(mesh) {
+        mesh.userData = mesh.userData || {};
+        mesh.userData.active = false;
+        
+        mesh.material = new THREE.MeshStandardMaterial({
+            color: mesh.material.color || 0x0066ff,
+            metalness: 0.1,
+            roughness: 0.5,
+            emissive: mesh.material.emissive || 0x0066ff,
+            emissiveIntensity: 0.3
+        });
+    }
+    
+    // 应用柜门材质（仅用于无烘焙贴图的柜门）
+    function applyCabinetDoorMaterial(mesh) {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        
+        mesh.material = new THREE.MeshStandardMaterial({
+            color: mesh.material.color || 0x3a4558,
+            metalness: 0.4,
+            roughness: 0.6,
+            transparent: false,
+            opacity: 1.0,
+            envMapIntensity: 0.3,
+            side: THREE.DoubleSide
+        });
+    }
+    
+    // 应用抽屉材质（仅用于无烘焙贴图的抽屉）
+    function applyDrawerMaterial(mesh) {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        
+        mesh.material = new THREE.MeshStandardMaterial({
+            color: mesh.material.color || 0x4a5568,
+            metalness: 0.3,
+            roughness: 0.7,
+            transparent: false,
+            opacity: 1.0,
+            envMapIntensity: 0.2,
+            side: THREE.DoubleSide
+        });
+    }
+    
+    // 加载HDR纹理
+    function loadHDRTexture(path, name) {
+        const hdrLoader = new RGBELoader();
+        
+        hdrLoader.load(
+            path,
+            function(texture) {
+                envMap = texture;
+                envMap.mapping = THREE.EquirectangularReflectionMapping;
+                
+                scene.traverse((child) => {
+                    if (child.isMesh && child.material) {
+                        if ((child.material.isMeshStandardMaterial || child.material.isMeshPhysicalMaterial) && 
+                            child.userData && child.userData.type !== 'screen') {
+                            child.material.envMap = envMap;
+                            child.material.envMapIntensity = envIntensity;
+                            child.material.needsUpdate = true;
+                        }
+                    }
+                });
+                
+                document.getElementById('hdr-info').classList.add('visible');
+                document.getElementById('current-hdr-name').textContent = name;
+            },
+            undefined,
+            function(error) {
+                console.warn('HDR环境贴图加载失败:', error);
+                alert('HDR文件加载失败，请确保文件路径正确');
+            }
+        );
+    }
+    
+    // 清除环境贴图
+    function clearEnvMap() {
+        envMap = null;
+        
+        scene.traverse((child) => {
+            if (child.isMesh && child.material) {
+                if ((child.material.isMeshStandardMaterial || child.material.isMeshPhysicalMaterial) && 
+                    child.userData && child.userData.type !== 'screen') {
+                    child.material.envMap = null;
+                    child.material.needsUpdate = true;
+                }
+            }
+        });
+    }
+    
+    // 更新金属材质
+    function updateMetalMaterials() {
+        metalness = parseFloat(document.getElementById('metalness-slider').value);
+        metalRoughness = parseFloat(document.getElementById('metal-roughness-slider').value);
+        
+        materialGroups.metal.forEach(mesh => {
+            if (mesh.material && mesh.userData && !mesh.userData.hasBakedTexture) {
+                mesh.material.metalness = metalness;
+                mesh.material.roughness = Math.max(metalRoughness, 0.3);
+                mesh.material.needsUpdate = true;
+            }
+        });
+    }
+    
+    // 更新油漆材质
+    function updatePaintMaterials() {
+        paintBrightness = parseFloat(document.getElementById('paint-brightness-slider').value);
+        paintRoughness = parseFloat(document.getElementById('paint-roughness-slider').value);
+        
+        materialGroups.paint.forEach(mesh => {
+            if (mesh.material && mesh.userData && mesh.userData.originalColor && !mesh.userData.hasBakedTexture) {
+                mesh.material.color = mesh.userData.originalColor.clone().multiplyScalar(paintBrightness);
+                mesh.material.roughness = paintRoughness;
+                mesh.material.needsUpdate = true;
+            }
+        });
+    }
+    
+    // 创建备用模型
+    function createFallbackModel() {
+        model = new THREE.Group();
+        
+        const baseGeometry = new THREE.BoxGeometry(6, 0.5, 3);
+        const baseMaterial = new THREE.MeshStandardMaterial({
+            color: 0x222222,
+            metalness: 0.8,
+            roughness: 0.3
+        });
+        const base = new THREE.Mesh(baseGeometry, baseMaterial);
+        base.castShadow = true;
+        base.receiveShadow = true;
+        base.position.y = -0.25;
+        model.add(base);
+        
+        // 创建显示屏
+        const screenGeometry = new THREE.BoxGeometry(2, 1.5, 0.1);
+        
+        // 创建显示屏贴图
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 192;
+        const ctx = canvas.getContext('2d');
+        
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, '#001144');
+        gradient.addColorStop(0.5, '#0044aa');
+        gradient.addColorStop(1, '#001144');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < canvas.width; x += 32) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, canvas.height);
+            ctx.stroke();
+        }
+        for (let y = 0; y < canvas.height; y += 32) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(canvas.width, y);
+            ctx.stroke();
+        }
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 24px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('显示屏', canvas.width/2, canvas.height/2);
+        
+        const texture = new THREE.CanvasTexture(canvas);
+        const originalColor = new THREE.Color(0x2244aa);
+        
+        const offMaterial = new THREE.MeshStandardMaterial({
+            map: texture,
+            color: new THREE.Color(0x050510),
+            metalness: 0.1,
+            roughness: 0.9,
+            emissive: new THREE.Color(0x000000),
+            emissiveIntensity: 0,
+            transparent: false,
+            opacity: 1.0,
+            side: THREE.FrontSide
+        });
+        
+        const onMaterial = new THREE.MeshStandardMaterial({
+            map: texture,
+            color: originalColor.clone().multiplyScalar(screenOnBrightness),
+            metalness: 0.05,
+            roughness: 0.1,
+            emissive: originalColor.clone().multiplyScalar(screenOnBrightness * 0.8),
+            emissiveIntensity: 0.8,
+            transparent: false,
+            opacity: 1.0,
+            side: THREE.FrontSide
+        });
+        
+        const screen = new THREE.Mesh(screenGeometry, offMaterial);
+        screen.castShadow = true;
+        screen.receiveShadow = true;
+        screen.position.set(0, 1.8, 1.4);
+        screen.userData = { 
+            type: 'screen', 
+            active: false,
+            offMaterial: offMaterial,
+            onMaterial: onMaterial,
+            originalMap: texture,
+            originalColor: originalColor
+        };
+        model.add(screen);
+        materialGroups.screen.push(screen);
+        
+        scene.add(model);
+        document.getElementById('loading').style.display = 'none';
+    }
+    
+    // 切换所有屏幕
+    function toggleAllScreens() {
+        if (materialGroups.screen.length === 0) return;
+        
+        const anyScreenActive = materialGroups.screen.some(screen => screen.userData.active);
+        const newActiveState = !anyScreenActive;
+        
+        materialGroups.screen.forEach(screen => {
+            try {
+                screen.userData.active = newActiveState;
+                
+                if (screen.userData.isBaked && screen.userData.offMaterial && screen.userData.onMaterial) {
+                    screen.material = newActiveState ? screen.userData.onMaterial : screen.userData.offMaterial;
+                } else if (screen.userData.offMaterial && screen.userData.onMaterial) {
+                    screen.material = newActiveState ? screen.userData.onMaterial : screen.userData.offMaterial;
+                }
+                
+                if (screen.material) {
+                    screen.material.needsUpdate = true;
+                }
+            } catch (error) {
+                console.warn('处理屏幕材质时出错:', screen.name, error);
+            }
+        });
+        
+        updateBloomEffect();
+        
+        document.getElementById('interaction-status').style.backgroundColor = newActiveState ? '#10b981' : '#f59e0b';
+        document.getElementById('interaction-status-text').textContent = newActiveState ? '屏幕开启' : '屏幕关闭';
+    }
+    
+    // 切换所有灯带
+    function toggleAllEmitGlows() {
+        if (materialGroups.emit.length === 0) return;
+        
+        const anyEmitActive = materialGroups.emit.some(emit => emit.userData.active);
+        const newActiveState = !anyEmitActive;
+        
+        materialGroups.emit.forEach(emitPart => {
+            try {
+                emitPart.userData.active = newActiveState;
+                
+                if (newActiveState) {
+                    emitPart.material.emissiveIntensity = 1.2;
+                    emitPart.material.emissive.set(0x00aaff);
+                    emitPart.material.color.set(0x0088ff);
+                } else {
+                    emitPart.material.emissiveIntensity = 0.3;
+                    emitPart.material.emissive.set(0x0066ff);
+                    emitPart.material.color.set(0x0066ff);
+                }
+                
+                emitPart.material.needsUpdate = true;
+            } catch (error) {
+                console.warn('处理灯带材质时出错:', emitPart.name, error);
+            }
+        });
+        
+        updateBloomEffect();
+    }
+    
+    // 切换柜门状态
+    function toggleCabinetDoor(clickedObject) {
+        if (!clickedObject) return;
+        
+        console.log('切换柜门:', clickedObject.name, '是否为组:', clickedObject.isGroup);
+        
+        // 获取实际的柜门对象（如果是网格且有关联的父组，使用父组）
+        let actualDoor = clickedObject;
+        if (clickedObject.userData && clickedObject.userData.parentGroup) {
+            actualDoor = clickedObject.userData.parentGroup;
+            console.log('使用父组:', actualDoor.name);
+        }
+        
+        const doorOpen = !actualDoor.userData.open;
+        actualDoor.userData.open = doorOpen;
+        
+        const targetRotation = doorOpen ? 
+            (actualDoor.userData.initialRotation || 0) + doorOpenAngle : 
+            (actualDoor.userData.initialRotation || 0);
+        
+        const startRotation = actualDoor.rotation.z;
+        const duration = 500;
+        
+        let startTime = null;
+        
+        function animateDoor(time) {
+            if (!startTime) startTime = time;
+            const elapsed = time - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            const easedProgress = progress < 0.5 ? 
+                2 * progress * progress : 
+                -1 + (4 - 2 * progress) * progress;
+            
+            actualDoor.rotation.z = startRotation + (targetRotation - startRotation) * easedProgress;
+            
+            // 强制更新矩阵，确保子对象正确跟随
+            actualDoor.updateMatrix();
+            actualDoor.updateMatrixWorld(true);
+            
+            // 更新所有子对象的矩阵
+            actualDoor.traverse((child) => {
+                if (child.isMesh) {
+                    child.updateMatrix();
+                    child.updateMatrixWorld(true);
+                }
+            });
+            
+            if (progress < 1) {
+                requestAnimationFrame(animateDoor);
+            } else {
+                actualDoor.rotation.z = targetRotation;
+                updateDoorStatus();
+            }
+        }
+        
+        requestAnimationFrame(animateDoor);
+        updateDoorStatus();
+    }
+    
+    // 切换抽屉状态（修复版 - 在局部坐标系中移动）
+   function toggleDrawer(drawerObject) {
+    if (!drawerObject) {
+        console.warn('未找到抽屉对象');
+        return;
+    }
+    
+    console.log('切换抽屉:', drawerObject.name, '是否为组:', drawerObject.isGroup);
+    
+    // 获取实际的抽屉对象（如果是网格且有关联的父组，使用父组）
+    let actualDrawer = drawerObject;
+    if (drawerObject.userData && drawerObject.userData.parentGroup) {
+        actualDrawer = drawerObject.userData.parentGroup;
+        console.log('使用父组:', actualDrawer.name);
+    }
+    
+    const drawerOpen = !actualDrawer.userData.open;
+    actualDrawer.userData.open = drawerOpen;
+    
+    if (!actualDrawer.userData.initialPosition) {
+        // 保存初始局部位置
+        actualDrawer.userData.initialPosition = actualDrawer.position.clone();
+        actualDrawer.userData.initialLocalPosition = actualDrawer.position.clone();
+        console.log('保存初始局部位置:', actualDrawer.userData.initialLocalPosition);
+    }
+    
+    // 在局部坐标系中移动抽屉（模型局部：Z 向上，Y 朝向相机，沿局部 Y 轴 -200）
+    const moveDistance = drawerMoveDistance;
+    let moveAxis = new THREE.Vector3(0, 1, 0); // 默认沿局部 Y 轴
+    if (actualDrawer.userData.moveAxis) {
+        moveAxis = actualDrawer.userData.moveAxis.clone();
+    }
+    
+    // 目标位置 = 初始局部位置 + 局部轴向位移
+    const targetPosition = actualDrawer.userData.initialPosition.clone();
+    if (drawerOpen) {
+        targetPosition.add(moveAxis.clone().multiplyScalar(moveDistance));
+        console.log(`抽屉打开，局部位移: ${moveDistance} mm`);
+    } else {
+        console.log('抽屉关闭，回到初始位置');
+    }
+    
+    console.log('当前位置:', actualDrawer.position.toArray());
+    console.log('目标位置:', targetPosition.toArray());
+    
+    // 动画参数
+    const startPosition = actualDrawer.position.clone();
+    const duration = 500;
+    let startTime = null;
+    
+    // 动画函数
+    function animateDrawer(time) {
+        if (!startTime) startTime = time;
+        const elapsed = time - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // 缓动函数
+        const easedProgress = progress < 0.5 ? 
+            2 * progress * progress : 
+            -1 + (4 - 2 * progress) * progress;
+        
+        // 插值位置
+        actualDrawer.position.lerpVectors(startPosition, targetPosition, easedProgress);
+        
+        // 强制更新矩阵
+        actualDrawer.updateMatrix();
+        actualDrawer.updateMatrixWorld(true);
+        
+        // 更新所有子对象的矩阵
+        actualDrawer.traverse((child) => {
+            if (child.isMesh) {
+                child.updateMatrix();
+                child.updateMatrixWorld(true);
+            }
+        });
+        
+        console.log(`动画进度: ${progress.toFixed(2)}, 当前位置:`, actualDrawer.position.toArray());
+        
+        if (progress < 1) {
+            requestAnimationFrame(animateDrawer);
+        } else {
+            actualDrawer.position.copy(targetPosition);
+            
+            // 最终更新矩阵
+            actualDrawer.updateMatrix();
+            actualDrawer.updateMatrixWorld(true);
+            
+            console.log(`抽屉${drawerOpen ? '打开' : '关闭'}完成，最终位置:`, actualDrawer.position.toArray());
+        }
+    }
+    
+    requestAnimationFrame(animateDrawer);
+}
+
+    // 切换推拉门状态（沿局部X轴移动450）
+    function toggleSlidingDoor(doorObject) {
+        if (!doorObject) {
+            console.warn('未找到推拉门对象');
+            return;
+        }
+        
+        console.log('切换推拉门:', doorObject.name, '是否为组:', doorObject.isGroup);
+        
+        // 获取实际的推拉门对象（如果是网格且有关联的父组，使用父组）
+        let actualDoor = doorObject;
+        if (doorObject.userData && doorObject.userData.parentGroup) {
+            actualDoor = doorObject.userData.parentGroup;
+            console.log('使用父组:', actualDoor.name);
+        }
+        
+        // 确保只处理被点击的推拉门，而不是所有推拉门
+        console.log('处理单个推拉门:', actualDoor.name);
+        
+        const doorOpen = !actualDoor.userData.open;
+        actualDoor.userData.open = doorOpen;
+        
+        if (!actualDoor.userData.initialPosition) {
+            // 保存初始位置
+            actualDoor.userData.initialPosition = actualDoor.position.clone();
+            console.log('保存初始位置:', actualDoor.userData.initialPosition);
+        }
+        
+        // 沿局部X轴移动推拉门
+        const moveDistance = actualDoor.userData.moveDistance || 450;
+        
+        // 计算局部X轴方向的位移
+        // 创建局部X轴方向向量
+        const localX = new THREE.Vector3(1, 0, 0);
+        // 获取推拉门的旋转矩阵
+        const rotationMatrix = new THREE.Matrix4().extractRotation(actualDoor.matrixWorld);
+        // 将局部X轴转换为世界空间
+        const worldX = localX.clone().applyMatrix4(rotationMatrix);
+        // 计算位移向量
+        const displacement = worldX.multiplyScalar(moveDistance);
+        
+        // 目标位置（基于初始位置）
+        const targetPosition = actualDoor.userData.initialPosition.clone();
+        if (doorOpen) {
+            targetPosition.add(displacement);
+            console.log(`推拉门打开，沿局部X轴移动: ${moveDistance} 单位`);
+            console.log('局部X轴方向:', localX.toArray());
+            console.log('世界X轴方向:', worldX.toArray());
+            console.log('位移向量:', displacement.toArray());
+        } else {
+            console.log('推拉门关闭，回到初始位置');
+        }
+        
+        console.log('当前位置:', actualDoor.position.toArray());
+        console.log('目标位置:', targetPosition.toArray());
+        
+        // 动画参数
+        const startPosition = actualDoor.position.clone();
+        const duration = 800; // 推拉门动画稍慢一些
+        let startTime = null;
+        
+        // 动画函数
+        function animateDoor(time) {
+            if (!startTime) startTime = time;
+            const elapsed = time - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // 缓动函数
+            const easedProgress = progress < 0.5 ? 
+                2 * progress * progress : 
+                -1 + (4 - 2 * progress) * progress;
+            
+            // 插值位置 - 只更新当前推拉门的位置
+            actualDoor.position.lerpVectors(startPosition, targetPosition, easedProgress);
+            
+            // 强制更新矩阵
+            actualDoor.updateMatrix();
+            actualDoor.updateMatrixWorld(true);
+            
+            // 更新所有子对象的矩阵
+            actualDoor.traverse((child) => {
+                if (child.isMesh) {
+                    child.updateMatrix();
+                    child.updateMatrixWorld(true);
+                }
+            });
+            
+            console.log(`动画进度: ${progress.toFixed(2)}, 当前位置:`, actualDoor.position.toArray());
+            
+            if (progress < 1) {
+                requestAnimationFrame(animateDoor);
+            } else {
+                actualDoor.position.copy(targetPosition);
+                
+                // 最终更新矩阵
+                actualDoor.updateMatrix();
+                actualDoor.updateMatrixWorld(true);
+                
+                console.log(`推拉门${doorOpen ? '打开' : '关闭'}完成，最终位置:`, actualDoor.position.toArray());
+            }
+        }
+        
+        // 使用动画
+        requestAnimationFrame(animateDoor);
+    }
+    
+
+    
+    // 更新柜门状态显示
+    function updateDoorStatus() {
+        const anyDoorOpen = cabinetDoors.some(door => door.userData.open);
+        
+        const statusElement = document.getElementById('door-status');
+        const textElement = document.getElementById('door-status-text');
+        
+        if (anyDoorOpen) {
+            statusElement.style.backgroundColor = '#10b981';
+            textElement.textContent = '柜门打开';
+        } else {
+            statusElement.style.backgroundColor = '#8a9bb8';
+            textElement.textContent = '柜门关闭';
+        }
+    }
+    
+    // 更新辉光效果
+    function updateBloomEffect() {
+        if (!bloomPass) return;
+        
+        bloomPass.strength = bloomEnabled ? bloomStrength : 0;
+        bloomPass.threshold = bloomThreshold;
+        bloomPass.radius = bloomRadius;
+    }
+    
+    // 创建阴影接收器
+    function createShadowCatcher() {
+        const shadowCatcherGeometry = new THREE.PlaneGeometry(30, 30);
+        const shadowCatcherMaterial = new THREE.ShadowMaterial({
+            opacity: 0.25,
+            color: 0x1a1a2a,
+            transparent: true
+        });
+        
+        shadowCatcher = new THREE.Mesh(shadowCatcherGeometry, shadowCatcherMaterial);
+        shadowCatcher.rotation.x = -Math.PI / 2;
+        shadowCatcher.position.y = -0.5;
+        shadowCatcher.receiveShadow = true;
+        shadowCatcher.visible = false;
+        scene.add(shadowCatcher);
+    }
+    
+    // 更新阴影接收器位置
+    function updateShadowPosition() {
+        if (!shadowCatcher || !model) return;
+        
+        try {
+            const box = new THREE.Box3().setFromObject(model);
+            const center = new THREE.Vector3();
+            const size = new THREE.Vector3();
+            box.getCenter(center);
+            box.getSize(size);
+            
+            const modelBottom = box.min.y;
+            
+            shadowCatcher.position.set(
+                center.x,
+                modelBottom - 0.05,
+                center.z
+            );
+            
+            const margin = 1.8;
+            const targetWidth = Math.max(8, size.x * margin);
+            const targetDepth = Math.max(8, size.z * margin);
+            
+            const scaleX = targetWidth / 30;
+            const scaleZ = targetDepth / 30;
+            
+            shadowCatcher.scale.set(scaleX, 1, scaleZ);
+            shadowCatcher.visible = true;
+            
+            return true;
+        } catch (error) {
+            console.error('更新阴影位置时出错:', error);
+            return false;
+        }
+    }
+    
+    // 更新灯光强度 - 修复主光源问题
+    function updateLightIntensity() {
+        console.log('更新灯光强度 - 主光源:', mainLightIntensity);
+        
+        // 关键修复：重新设置所有灯光的强度
+        if (mainLight) {
+            mainLight.intensity = mainLightIntensity;
+            console.log('主方向光强度已更新:', mainLight.intensity);
+        }
+        
+        if (pointLight1) {
+            pointLight1.intensity = mainLightIntensity * 0.8;
+        }
+        
+        if (pointLight2) {
+            pointLight2.intensity = mainLightIntensity * 0.6;
+        }
+        
+        if (pointLight3) {
+            pointLight3.intensity = mainLightIntensity * 0.4;
+        }
+        
+        if (leftFillLight) {
+            leftFillLight.intensity = leftLightIntensity;
+        }
+        
+        if (rightFillLight) {
+            rightFillLight.intensity = rightLightIntensity;
+        }
+        
+        if (ambientLight) {
+            ambientLight.intensity = envIntensity;
+        }
+        
+        // 更新所有材质的环境光强度
+        scene.traverse((child) => {
+            if (child.isMesh && child.material) {
+                if ((child.material.isMeshStandardMaterial || child.material.isMeshPhysicalMaterial) && 
+                    child.userData && child.userData.type !== 'screen') {
+                    child.material.envMapIntensity = envIntensity;
+                    child.material.needsUpdate = true;
+                }
+            }
+        });
+    }
+    
+    // 设置星空蓝背景
+    function setStarryBlueBackground() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 2048;
+        canvas.height = 1024;
+        const ctx = canvas.getContext('2d');
+        
+        const gradient = ctx.createRadialGradient(
+            canvas.width * 0.5, canvas.height * 0.4, 0,
+            canvas.width * 0.5, canvas.height * 0.4, Math.max(canvas.width, canvas.height) * 0.6
+        );
+        
+        gradient.addColorStop(0, '#0038a8');
+        gradient.addColorStop(0.3, '#00287a');
+        gradient.addColorStop(0.6, '#001c5c');
+        gradient.addColorStop(0.8, '#001244');
+        gradient.addColorStop(1, '#000a2a');
+        
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        for (let i = 0; i < 200; i++) {
+            const x = Math.random() * canvas.width;
+            const y = Math.random() * canvas.height;
+            const size = Math.random() * 1.5 + 0.5;
+            const alpha = Math.random() * 0.6 + 0.4;
+            
+            ctx.globalAlpha = alpha;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        ctx.globalAlpha = 1.0;
+        
+        const texture = new THREE.CanvasTexture(canvas);
+        scene.background = texture;
+    }
+    
+    // 设置泛光灯照明系统 - 完全重构
+    function setupOmnidirectionalLighting() {
+        // 清空现有灯光
+        omniLights.forEach(light => scene.remove(light));
+        omniLights = [];
+        
+// 主方向光（最终优化版）
+mainLight = new THREE.DirectionalLight(0xffffff, mainLightIntensity);
+mainLight.position.set(8, 12, 10); // 降低高度，减少阴影拉伸
+mainLight.castShadow = true;
+
+// 阴影分辨率保持（保证柔化后不模糊）
+mainLight.shadow.mapSize.width = 2048;
+mainLight.shadow.mapSize.height = 2048;
+
+// 缩短阴影范围
+mainLight.shadow.camera.near = 1;
+mainLight.shadow.camera.far = 20;       // 核心：缩短远裁剪面
+mainLight.shadow.camera.left = -10;
+mainLight.shadow.camera.right = 10;
+mainLight.shadow.camera.top = 10;
+mainLight.shadow.camera.bottom = -3;
+
+// 柔化阴影+微调偏移
+mainLight.shadow.radius = 8;            // 阴影柔化半径
+mainLight.shadow.bias = -0.0015;        // 平衡柔化与悬浮问题
+
+scene.add(mainLight);
+omniLights.push(mainLight);
+
+// 渲染器软阴影配置（必须加）
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        // 新增：阴影补光（低强度、冷色调，仅填充阴影暗部）
+        const shadowFillLight = new THREE.DirectionalLight(0xaaaaee, 0.15);
+        shadowFillLight.position.set(5, 8, -5); // 从阴影方向照射，避免抵消主光
+        shadowFillLight.castShadow = false;
+        scene.add(shadowFillLight);
+        omniLights.push(shadowFillLight);
+
+        // 点光源1（顶部前方）
+        pointLight1 = new THREE.PointLight(0xffffff, mainLightIntensity * 0.8, 15);
+        pointLight1.position.set(0, 8, 5);
+        pointLight1.castShadow = false;
+        scene.add(pointLight1);
+        omniLights.push(pointLight1);
+        
+        // 点光源2（顶部后方）
+        pointLight2 = new THREE.PointLight(0xffffff, mainLightIntensity * 0.6, 12);
+        pointLight2.position.set(0, 6, -4);
+        pointLight2.castShadow = false;
+        scene.add(pointLight2);
+        omniLights.push(pointLight2);
+        
+        // 点光源3（顶部侧方）
+        pointLight3 = new THREE.PointLight(0xffffff, mainLightIntensity * 0.4, 10);
+        pointLight3.position.set(6, 5, 0);
+        pointLight3.castShadow = false;
+        scene.add(pointLight3);
+        omniLights.push(pointLight3);
+        
+        // 左辅助光（冷色光）
+        leftFillLight = new THREE.DirectionalLight(0x88ccff, leftLightIntensity);
+        leftFillLight.position.set(-5, 3, 3);
+        leftFillLight.castShadow = false;
+        scene.add(leftFillLight);
+        omniLights.push(leftFillLight);
+        
+        // 右辅助光（暖色光）
+        rightFillLight = new THREE.DirectionalLight(0xffaa88, rightLightIntensity);
+        rightFillLight.position.set(5, 2, -2);
+        rightFillLight.castShadow = false;
+        scene.add(rightFillLight);
+        omniLights.push(rightFillLight);
+        
+        // 环境光
+        ambientLight = new THREE.AmbientLight(0xffffff, envIntensity);
+        scene.add(ambientLight);
+        omniLights.push(ambientLight);
+        
+        console.log('灯光系统已设置完成');
+        console.log('主方向光位置:', mainLight.position);
+        console.log('主方向光强度:', mainLight.intensity);
+    }
+    
+    // 收集模型中所有可参与射线检测的网格（用于只命中最近、不被遮挡的物体）
+    function collectAllMeshesForRaycast() {
+        const meshes = [];
+        if (model) {
+            model.traverse((child) => {
+                if (child.isMesh) meshes.push(child);
+            });
+        }
+        return meshes;
+    }
+    
+    const INTERACTIVE_TYPES = ['screen', 'emit', 'cabinetDoor', 'drawer', 'slidingDoor'];
+    
+    // 射线检测：只取最近的一个交点，且仅当该物体为可交互类型时才返回（被非交互物体遮挡则不命中）
+    function getFirstHitInteractive() {
+        const allMeshes = collectAllMeshesForRaycast();
+        if (allMeshes.length === 0) return null;
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(allMeshes, true);
+        if (intersects.length === 0) return null;
+        const hit = intersects[0];
+        let obj = hit.object;
+        while (obj) {
+            const t = obj.userData && obj.userData.type;
+            if (t && INTERACTIVE_TYPES.includes(t)) {
+                return { object: obj, type: t };
+            }
+            obj = obj.parent;
+        }
+        return null;
+    }
+    
+    // 处理画布点击事件（只响应未被遮挡的可交互物体）
+    function onCanvasClick(event) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        const hit = getFirstHitInteractive();
+        if (!hit) return;
+        
+        const clickedObject = hit.object;
+        const partType = hit.type;
+        
+        console.log(`点击了: "${clickedObject.name}", 类型: ${partType}`);
+        
+        if (partType === 'screen') {
+            toggleAllScreens();
+        } else if (partType === 'emit') {
+            toggleAllEmitGlows();
+        } else if (partType === 'cabinetDoor') {
+            toggleCabinetDoor(clickedObject);
+        } else if (partType === 'drawer') {
+            toggleDrawer(clickedObject);
+        } else if (partType === 'slidingDoor') {
+            toggleSlidingDoor(clickedObject);
+        }
+    }
+    
+    // 鼠标移动：更新轮廓高亮（仅对未被遮挡的可交互物体高亮；柜门/抽屉高亮整组）
+    function onCanvasMouseMove(event) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        const hit = getFirstHitInteractive();
+        const list = outlinePass.selectedObjects;
+        list.length = 0;
+        if (hit && hit.object) {
+            const outlineTarget = (hit.object.userData && hit.object.userData.parentGroup) ? hit.object.userData.parentGroup : hit.object;
+            list.push(outlineTarget);
+        }
+    }
+    
+    // 窗口大小调整处理
+    function onWindowResize() {
+        const container = document.getElementById('three-container');
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+        composer.setSize(w, h);
+        if (outlinePass && outlinePass.resolution) outlinePass.resolution.set(w, h);
+        if (bloomPass && bloomPass.resolution) bloomPass.resolution.set(w, h);
+    }
+    
+    // 动画循环
+    function animate() {
+        requestAnimationFrame(animate);
+        
+        const delta = clock.getDelta();
+        
+        controls.update();
+        composer.render();
+    }
+    
+    // 初始化Three.js场景
+    async function init() {
+        // 创建场景
+        scene = new THREE.Scene();
+        
+        // 创建相机
+        const container = document.getElementById('three-container');
+        camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+        camera.position.set(8, 6, 8);
+        
+        // 创建渲染器
+        renderer = new THREE.WebGLRenderer({ 
+            antialias: true, 
+            alpha: true,
+            powerPreference: "high-performance"
+        });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        
+        if (renderer.outputColorSpace !== undefined) {
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+        } else if (renderer.outputEncoding !== undefined) {
+            renderer.outputEncoding = THREE.sRGBEncoding;
+        }
+        
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.autoUpdate = true;
+        
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        
+        container.appendChild(renderer.domElement);
+        
+        // 创建轨道控制器
+        controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 3;
+        controls.maxDistance = 20;
+        controls.maxPolarAngle = Math.PI * 0.8;
+        
+        // 创建后期处理
+        composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+        
+        // 轮廓高亮（鼠标悬停可交互物体）
+        const outlineSelected = [];
+        outlinePass = new OutlinePass(
+            new THREE.Vector2(container.clientWidth, container.clientHeight),
+            scene,
+            camera,
+            outlineSelected
+        );
+        outlinePass.edgeStrength = 2.5;
+        outlinePass.edgeGlow = 0.5;
+        outlinePass.edgeThickness = 1.5;
+        outlinePass.visibleEdgeColor.set('#4dabf7');
+        outlinePass.hiddenEdgeColor.set('#2a3f5f');
+        composer.addPass(outlinePass);
+        
+        // 创建辉光效果
+        bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(container.clientWidth, container.clientHeight),
+            bloomStrength,
+            bloomRadius,
+            bloomThreshold
+        );
+        composer.addPass(bloomPass);
+        
+        // 设置泛光灯照明系统
+        setupOmnidirectionalLighting();
+        
+        // 设置星空蓝背景
+        setStarryBlueBackground();
+        
+        // 创建阴影接收器
+        createShadowCatcher();
+        
+        // 初始化模型选择器（异步）
+        await initModelSelector();
+        
+        // 初始化HDR选择器
+        initHDRSelector();
+        
+        // 加载默认模型
+        loadModel('models/default_model.glb');
+        
+        // 添加事件监听
+        window.addEventListener('resize', onWindowResize);
+        renderer.domElement.addEventListener('click', onCanvasClick);
+        renderer.domElement.addEventListener('mousemove', onCanvasMouseMove);
+        
+        // 开始动画循环
+        animate();
+    }
+    
+    // 初始化UI事件监听
+    function initUIEvents() {
+        // 移动端控制面板切换
+        const mobileControlsToggle = document.getElementById('mobile-controls-toggle');
+        const controlsSection = document.getElementById('controls-section');
+        const controlsOverlay = document.getElementById('controls-overlay');
+        
+        function toggleControls() {
+            const isMobile = window.innerWidth <= 1100;
+            if (isMobile) {
+                controlsSection.classList.toggle('active');
+                controlsOverlay.classList.toggle('active');
+                document.body.style.overflow = controlsSection.classList.contains('active') ? 'hidden' : '';
+            }
+        }
+        
+        mobileControlsToggle.addEventListener('click', toggleControls);
+        controlsOverlay.addEventListener('click', toggleControls);
+        
+        // 重置视图按钮（OrbitControls 部分版本无 reset，故手动恢复）
+        const initialCameraPosition = new THREE.Vector3(8, 6, 8);
+        const initialControlsTarget = new THREE.Vector3(0, 0, 0);
+        document.getElementById('reset-view-btn').addEventListener('click', function() {
+            camera.position.copy(initialCameraPosition);
+            if (controls.target) controls.target.copy(initialControlsTarget);
+            if (typeof controls.reset === 'function') controls.reset();
+            controls.update();
+        });
+        
+        // 灯光切换按钮
+        document.getElementById('toggle-lights-btn').addEventListener('click', function() {
+            let lightsOn = true;
+            omniLights.forEach(light => {
+                light.visible = !light.visible;
+                if (!light.visible) lightsOn = false;
+            });
+            
+            this.innerHTML = lightsOn ? 
+                '<i class="fas fa-lightbulb"></i><span>泛光灯照明</span>' : 
+                '<i class="far fa-lightbulb"></i><span>开启灯光</span>';
+        });
+        
+        // 金属材质滑块
+        document.getElementById('metalness-slider').addEventListener('input', function() {
+            const value = parseFloat(this.value);
+            document.getElementById('metalness-value').textContent = value.toFixed(2);
+            updateMetalMaterials();
+        });
+        
+        document.getElementById('metal-roughness-slider').addEventListener('input', function() {
+            const value = parseFloat(this.value);
+            document.getElementById('metal-roughness-value').textContent = value.toFixed(2);
+            updateMetalMaterials();
+        });
+        
+        // 油漆材质滑块
+        document.getElementById('paint-brightness-slider').addEventListener('input', function() {
+            const value = parseFloat(this.value);
+            document.getElementById('paint-brightness-value').textContent = value.toFixed(1);
+            updatePaintMaterials();
+        });
+        
+        document.getElementById('paint-roughness-slider').addEventListener('input', function() {
+            const value = parseFloat(this.value);
+            document.getElementById('paint-roughness-value').textContent = value.toFixed(2);
+            updatePaintMaterials();
+        });
+        
+        // 主光源强度滑块 - 修复版
+        document.getElementById('light-intensity-slider').addEventListener('input', function() {
+            mainLightIntensity = parseFloat(this.value);
+            document.getElementById('light-intensity-value').textContent = mainLightIntensity.toFixed(1);
+            console.log('主光源强度滑块值:', mainLightIntensity);
+            updateLightIntensity();
+        });
+        
+        // 左辅助光强度滑块
+        document.getElementById('left-light-slider').addEventListener('input', function() {
+            leftLightIntensity = parseFloat(this.value);
+            document.getElementById('left-light-value').textContent = leftLightIntensity.toFixed(1);
+            updateLightIntensity();
+        });
+        
+        // 右辅助光强度滑块
+        document.getElementById('right-light-slider').addEventListener('input', function() {
+            rightLightIntensity = parseFloat(this.value);
+            document.getElementById('right-light-value').textContent = rightLightIntensity.toFixed(1);
+            updateLightIntensity();
+        });
+        
+        // 环境光强度滑块
+        document.getElementById('env-intensity-slider').addEventListener('input', function() {
+            envIntensity = parseFloat(this.value);
+            document.getElementById('env-intensity-value').textContent = envIntensity.toFixed(1);
+            updateLightIntensity();
+        });
+        
+        // 辉光效果滑块
+        document.getElementById('bloom-strength-slider').addEventListener('input', function() {
+            bloomStrength = parseFloat(this.value);
+            document.getElementById('bloom-strength-value').textContent = bloomStrength.toFixed(1);
+            updateBloomEffect();
+        });
+        
+        document.getElementById('bloom-threshold-slider').addEventListener('input', function() {
+            bloomThreshold = parseFloat(this.value);
+            document.getElementById('bloom-threshold-value').textContent = bloomThreshold.toFixed(2);
+            updateBloomEffect();
+        });
+        
+        document.getElementById('bloom-radius-slider').addEventListener('input', function() {
+            bloomRadius = parseFloat(this.value);
+            document.getElementById('bloom-radius-value').textContent = bloomRadius.toFixed(1);
+            updateBloomEffect();
+        });
+        
+        // 辉光启用开关
+        document.getElementById('bloom-enabled-toggle').addEventListener('change', function() {
+            bloomEnabled = this.checked;
+            updateBloomEffect();
+        });
+        
+        // 阴影控制滑块
+        document.getElementById('shadow-resolution-slider').addEventListener('input', function() {
+            const resolution = parseInt(this.value);
+            document.getElementById('shadow-resolution-value').textContent = resolution;
+            
+            if (mainLight) {
+                mainLight.shadow.mapSize.width = resolution;
+                mainLight.shadow.mapSize.height = resolution;
+                mainLight.shadow.map.dispose();
+                mainLight.shadow.map = null;
+            }
+        });
+        
+        document.getElementById('shadow-bias-slider').addEventListener('input', function() {
+            const bias = parseFloat(this.value);
+            document.getElementById('shadow-bias-value').textContent = bias.toFixed(4);
+            
+            if (mainLight) {
+                mainLight.shadow.bias = bias;
+            }
+        });
+        
+        document.getElementById('shadow-blur-slider').addEventListener('input', function() {
+            const blur = parseFloat(this.value);
+            document.getElementById('shadow-blur-value').textContent = blur.toFixed(1);
+            
+            if (mainLight) {
+                mainLight.shadow.radius = blur;
+            }
+        });
+        
+        // 软阴影开关
+        document.getElementById('soft-shadow-toggle').addEventListener('change', function() {
+            const useSoftShadow = this.checked;
+            
+            if (useSoftShadow) {
+                renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                if (mainLight) mainLight.shadow.radius = 1.5;
+            } else {
+                renderer.shadowMap.type = THREE.PCFShadowMap;
+                if (mainLight) mainLight.shadow.radius = 0;
+            }
+        });
+        
+        // HDR选择器已在initHDRSelector中初始化
+    }
+    
+    // 页面加载完成后初始化
+    window.addEventListener('DOMContentLoaded', async () => {
+        await init();
+        initUIEvents();
+        
+        // 设置初始滑块值显示
+        document.getElementById('light-intensity-value').textContent = mainLightIntensity.toFixed(1);
+        document.getElementById('left-light-value').textContent = leftLightIntensity.toFixed(1);
+        document.getElementById('right-light-value').textContent = rightLightIntensity.toFixed(1);
+        document.getElementById('env-intensity-value').textContent = envIntensity.toFixed(1);
+        document.getElementById('bloom-strength-value').textContent = bloomStrength.toFixed(1);
+        document.getElementById('bloom-threshold-value').textContent = bloomThreshold.toFixed(2);
+        document.getElementById('bloom-radius-value').textContent = bloomRadius.toFixed(1);
+    });
+    
+    // 窗口大小变化时更新移动端显示
+    window.addEventListener('resize', function() {
+        const isMobile = window.innerWidth <= 1100;
+        const controlsSection = document.getElementById('controls-section');
+        const controlsOverlay = document.getElementById('controls-overlay');
+        
+        if (!isMobile && controlsSection.classList.contains('active')) {
+            controlsSection.classList.remove('active');
+            controlsOverlay.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+    });
+    
+    // 全局函数
+    window.loadModel = loadModel;
+    
+    </script>
+</body>
+</html>
