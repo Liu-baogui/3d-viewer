@@ -201,6 +201,29 @@
             z-index: 10;
         }
         
+        /* 拖动浏览提示 */
+        .drag-hint {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 30, 60, 0.7);
+            color: #ffffff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid rgba(77, 171, 247, 0.5);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            z-index: 5;
+        }
+        
+        .drag-hint i {
+            color: #4dabf7;
+            font-size: 1rem;
+        }
+        
         .spinner {
             width: 50px;
             height: 50px;
@@ -1022,6 +1045,12 @@
                 </div>
             </div>
             
+            <!-- 拖动浏览提示 -->
+            <div class="drag-hint">
+                <i class="fas fa-mouse"></i>
+                <span>拖动浏览</span>
+            </div>
+            
             <div class="loading" id="loading" style="display: none;">
                 <div class="spinner"></div>
                 <p id="loading-text">正在加载模型...</p>
@@ -1279,13 +1308,12 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-    // DRACOLoader 和 OutlinePass 暂时使用 CDN，因为本地文件不存在
-    import { DRACOLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/DRACOLoader.js';
+    import { DRACOLoader } from './js/libs/draco/DRACOLoader.js';
     import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
     import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
     import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
     import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-    import { OutlinePass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/OutlinePass.js';
+    import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
     import { MeshoptDecoder } from './js/libs/meshopt/meshopt_decoder.module.js';
     
     // 全局变量
@@ -1332,6 +1360,9 @@
         drawer: []
     };
     
+    // 特殊材质引用
+    let ddMaterialMeshes = [];
+    
     // 灯光引用
     let mainLight, leftFillLight, rightFillLight, ambientLight;
     let pointLight1, pointLight2, pointLight3; // 三个点光源
@@ -1352,6 +1383,13 @@
     let autoPlayQueue = [];
     let isModelRotating = false;
     let modelRotationSpeed = (2 * Math.PI) / 20; // 20秒旋转一周
+    
+    // 拖动相关
+    let isDragging = false;
+    let draggedObject = null;
+    let dragStartMouse = new THREE.Vector2();
+    let dragStartPosition = new THREE.Vector3();
+    let dragStartRotation = new THREE.Euler();
     
     // 模型列表（初始为空，将通过检测本地models文件夹动态填充）
     let modelList = [];
@@ -1442,6 +1480,9 @@
             door: [],
             drawer: []
         };
+        
+        // 重置特殊材质数组
+        ddMaterialMeshes = [];
         
         cabinetDoors = [];
         drawers = [];
@@ -2130,10 +2171,40 @@
         object.traverse((child) => {
             if (child.isMesh) {
                 const meshName = child.name ? child.name.toLowerCase() : '';
+                const originalName = child.name || '(未命名)';
                 
                 // 跳过已经处理的柜门、抽屉和推拉门
                 if (child.userData && (child.userData.type === 'cabinetDoor' || child.userData.type === 'drawer' || child.userData.type === 'slidingDoor')) {
                     return;
+                }
+                
+                // 检测特殊材质 "dd"（灵活匹配）
+                // 注意：如果物体名称包含"emit"，优先作为emit物体处理
+                if (originalName.toLowerCase().includes('dd') && !originalName.toLowerCase().includes('emit')) {
+                    console.log('发现特殊材质 "dd":', child.name, '原始名称:', originalName);
+                    // 添加到数组中
+                    ddMaterialMeshes.push(child);
+                    // 保存原始材质
+                    child.userData = child.userData || {};
+                    child.userData.originalMaterial = child.material.clone();
+                    console.log('保存dd的原始材质:', child.material);
+                    console.log('dd材质的自发光强度:', child.material.emissiveIntensity);
+                    console.log('dd材质的自发光颜色:', child.material.emissive.getHexString());
+                    console.log('dd材质的颜色:', child.material.color.getHexString());
+                    console.log('当前dd物体数量:', ddMaterialMeshes.length);
+                    
+                    // 初始状态：改为暗蓝色半透明材质，确保辉光效果消失
+                    console.log('dd物体初始化：改为暗蓝色半透明材质');
+                    child.material = new THREE.MeshStandardMaterial({
+                        color: 0x1a2a3a, // 暗蓝色
+                        metalness: 0.1,
+                        roughness: 0.9, // 增加粗糙度
+                        emissive: 0x000000,
+                        emissiveIntensity: 0,
+                        transparent: true,
+                        opacity: 0.9 // 进一步增加不透明度
+                    });
+                    child.material.needsUpdate = true;
                 }
                 
                 // 检测是否有烘焙贴图
@@ -2156,27 +2227,36 @@
                     return;
                 }
                 
-                // 其他有烘焙贴图的部件 - 不使用烘焙材质，使用标准材质
+                // 其他有烘焙贴图的部件
                 if (hasBakedTexture) {
-                    console.log(`忽略烘焙材质，使用标准材质: ${child.name}`);
-                    
-                    // 根据名称分类并使用标准材质
-                    if (meshName.includes('metal')) {
-                        materialGroups.metal.push(child);
-                        child.userData = { type: 'metal' };
-                        applyMetalMaterial(child);
-                    } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
-                        materialGroups.paint.push(child);
-                        child.userData = { type: 'paint' };
-                        applyPaintMaterial(child);
-                    } else if (meshName.includes('emit') || meshName.includes('light') || meshName.includes('led')) {
+                    // 对于emit对象，保持原始烘焙材质
+                    if (meshName.includes('emit') || meshName.includes('light') || meshName.includes('led')) {
+                        console.log(`保持emit对象的原始烘焙材质: ${child.name}`);
                         materialGroups.emit.push(child);
-                        child.userData = { type: 'emit' };
+                        // 不覆盖已有的userData，只添加必要的属性
+                        child.userData = child.userData || {};
+                        child.userData.type = 'emit';
                         applyEmitMaterial(child);
+                        processedCount++;
+                        return;
+                    } else {
+                        // 其他部件：不使用烘焙材质，使用标准材质
+                        console.log(`忽略烘焙材质，使用标准材质: ${child.name}`);
+                        
+                        // 根据名称分类并使用标准材质
+                        if (meshName.includes('metal')) {
+                            materialGroups.metal.push(child);
+                            child.userData = { type: 'metal' };
+                            applyMetalMaterial(child);
+                        } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
+                            materialGroups.paint.push(child);
+                            child.userData = { type: 'paint' };
+                            applyPaintMaterial(child);
+                        }
+                        
+                        processedCount++;
+                        return;
                     }
-                    
-                    processedCount++;
-                    return;
                 }
                 
                 // 原始的非烘焙贴图处理逻辑
@@ -2206,6 +2286,10 @@
         });
 
         console.log(`材质处理完成，处理了 ${processedCount} 个网格`);
+        console.log('特殊材质 "dd" 检测结果:', ddMaterialMeshes.length > 0 ? `找到 ${ddMaterialMeshes.length} 个` : '未找到');
+        ddMaterialMeshes.forEach((mesh, index) => {
+            console.log(`dd物体 ${index + 1}:`, mesh.name);
+        });
     }
     
     // 检查材质是否有贴图
@@ -2354,15 +2438,52 @@
     // 应用发光材质
     function applyEmitMaterial(mesh) {
         mesh.userData = mesh.userData || {};
-        mesh.userData.active = false;
+        mesh.userData.active = false; // 初始状态设为关闭
         
-        mesh.material = new THREE.MeshStandardMaterial({
-            color: mesh.material.color || 0x0066ff,
-            metalness: 0.1,
-            roughness: 0.5,
-            emissive: mesh.material.emissive || 0x0066ff,
-            emissiveIntensity: 0.3
-        });
+        // 检查是否有烘焙贴图
+        const hasTexture = mesh.material && (mesh.material.map || 
+                                           mesh.material.emissiveMap || 
+                                           mesh.material.roughnessMap || 
+                                           mesh.material.metalnessMap ||
+                                           mesh.material.normalMap ||
+                                           mesh.material.aoMap);
+        
+        // 保存原始材质（如果有烘焙贴图）
+        if (hasTexture) {
+            mesh.userData.originalMaterial = mesh.material.clone();
+            mesh.userData.hasBakedTexture = true;
+            console.log('保存emit对象的原始烘焙材质:', mesh.name);
+            console.log('原始自发光强度:', mesh.material.emissiveIntensity);
+            console.log('原始自发光颜色:', mesh.material.emissive.getHexString());
+            
+            // 初始状态：改为暗蓝色半透明材质，确保辉光效果消失
+            console.log('emit对象初始化：改为暗蓝色半透明材质');
+            mesh.material = new THREE.MeshStandardMaterial({
+                color: 0x1a2a3a, // 暗蓝色
+                metalness: 0.1,
+                roughness: 0.8,
+                emissive: 0x000000,
+                emissiveIntensity: 0,
+                transparent: true,
+                opacity: 0.5
+            });
+        } else {
+            // 没有烘焙贴图时使用默认设置
+            console.log('emit对象无烘焙贴图，使用默认设置:', mesh.name);
+            mesh.material = new THREE.MeshStandardMaterial({
+                color: 0x1a2a3a, // 暗蓝色
+                metalness: 0.1,
+                roughness: 0.8,
+                emissive: 0x000000,
+                emissiveIntensity: 0,
+                transparent: true,
+                opacity: 0.5
+            });
+        }
+        
+        // 强制更新材质
+        mesh.material.needsUpdate = true;
+        console.log('emit对象初始化完成:', mesh.name, '当前状态: 关闭');
     }
     
     // 应用柜门材质（仅用于无烘焙贴图的柜门）
@@ -2596,72 +2717,413 @@
             }
         });
         
+        // 同步切换灯带状态
+        toggleAllEmitGlows();
+        
         updateBloomEffect();
         
         document.getElementById('interaction-status').style.backgroundColor = newActiveState ? '#10b981' : '#f59e0b';
         document.getElementById('interaction-status-text').textContent = newActiveState ? '屏幕开启' : '屏幕关闭';
     }
     
-    // 切换所有灯带
-    function toggleAllEmitGlows() {
-        if (materialGroups.emit.length === 0) return;
+    // 切换所有灯带（呼吸灯效果）
+    function toggleAllEmitGlows(duration = 1000) {
+        console.log('=== 开始切换所有灯带 ===');
+        console.log('当前dd物体数量:', ddMaterialMeshes.length);
+        console.log('当前emit对象数量:', materialGroups.emit.length);
         
-        const anyEmitActive = materialGroups.emit.some(emit => emit.userData.active);
-        const newActiveState = !anyEmitActive;
-        
-        materialGroups.emit.forEach(emitPart => {
-            try {
-                emitPart.userData.active = newActiveState;
-                
-                if (newActiveState) {
-                    emitPart.material.emissiveIntensity = 1.2;
-                    emitPart.material.emissive.set(0x00aaff);
-                    emitPart.material.color.set(0x0088ff);
-                } else {
-                    emitPart.material.emissiveIntensity = 0.3;
-                    emitPart.material.emissive.set(0x0066ff);
-                    emitPart.material.color.set(0x0066ff);
-                }
-                
-                emitPart.material.needsUpdate = true;
-            } catch (error) {
-                console.warn('处理灯带材质时出错:', emitPart.name, error);
-            }
+        // 检查屏幕状态：如果屏幕是开启的，灯带也应该开启
+        console.log('检查屏幕状态，屏幕数量:', materialGroups.screen.length);
+        const screenActive = materialGroups.screen.some(screen => {
+            const active = screen.userData && screen.userData.active;
+            console.log('屏幕:', screen.name, 'active:', active);
+            return active;
         });
+        const newActiveState = screenActive;
+        console.log('最终屏幕状态:', screenActive, '新的灯带状态:', newActiveState);
         
-        updateBloomEffect();
-    }
-    
-    // 自动演示：缓慢打开/关闭所有灯带
-    function autoToggleAllEmitGlows(duration = 1000) {
-        return new Promise((resolve) => {
-            if (materialGroups.emit.length === 0) {
-                resolve();
-                return;
-            }
-            
-            const anyEmitActive = materialGroups.emit.some(emit => emit.userData.active);
-            const newActiveState = !anyEmitActive;
-            
-            materialGroups.emit.forEach(emitPart => {
-                emitPart.userData.active = newActiveState;
-                
-                if (newActiveState) {
-                    emitPart.material.emissiveIntensity = 1.2;
-                    emitPart.material.emissive.set(0x00aaff);
-                    emitPart.material.color.set(0x0088ff);
-                } else {
-                    emitPart.material.emissiveIntensity = 0.3;
-                    emitPart.material.emissive.set(0x0066ff);
-                    emitPart.material.color.set(0x0066ff);
+        // 保存所有物体的初始状态
+        const objectsToAnimate = [];
+        
+        // 处理特殊材质 "dd"
+        if (ddMaterialMeshes.length > 0) {
+            console.log('处理特殊材质dd，共', ddMaterialMeshes.length, '个');
+            ddMaterialMeshes.forEach((ddMesh, index) => {
+                try {
+                    console.log('处理dd物体', index + 1, ':', ddMesh.name);
+                    ddMesh.userData.active = newActiveState;
+                    
+                    // 保存初始状态
+                    const initialMaterial = ddMesh.material.clone();
+                    let targetMaterial;
+                    
+                    if (newActiveState) {
+                        // 屏幕开启：使用原始材质
+                        targetMaterial = ddMesh.userData.originalMaterial ? ddMesh.userData.originalMaterial.clone() : initialMaterial;
+                    } else {
+                        // 屏幕关闭：使用暗蓝色半透明材质
+                        targetMaterial = new THREE.MeshStandardMaterial({
+                            color: 0x1a2a3a, // 暗蓝色
+                            metalness: 0.1,
+                            roughness: 0.9, // 增加粗糙度
+                            emissive: 0x000000,
+                            emissiveIntensity: 0,
+                            transparent: true,
+                            opacity: 0.9 // 进一步增加不透明度
+                        });
+                    }
+                    
+                    objectsToAnimate.push({ mesh: ddMesh, initialMaterial, targetMaterial });
+                } catch (error) {
+                    console.warn('处理dd材质时出错:', ddMesh.name, error);
                 }
-                
-                emitPart.material.needsUpdate = true;
+            });
+        } else {
+            console.log('未找到dd材质');
+        }
+        
+        // 处理emit对象
+        if (materialGroups.emit.length > 0) {
+            console.log('处理emit对象:', materialGroups.emit.length, '个');
+            materialGroups.emit.forEach(emitPart => {
+                try {
+                    emitPart.userData.active = newActiveState;
+                    
+                    // 保存初始状态
+                    const initialMaterial = emitPart.material.clone();
+                    let targetMaterial;
+                    
+                    if (newActiveState) {
+                        // 屏幕开启：使用原始材质
+                        targetMaterial = emitPart.userData.originalMaterial ? emitPart.userData.originalMaterial.clone() : initialMaterial;
+                    } else {
+                        // 屏幕关闭：使用暗蓝色半透明材质
+                        targetMaterial = new THREE.MeshStandardMaterial({
+                            color: 0x1a2a3a, // 暗蓝色
+                            metalness: 0.1,
+                            roughness: 0.9, // 增加粗糙度
+                            emissive: 0x000000,
+                            emissiveIntensity: 0,
+                            transparent: true,
+                            opacity: 0.9 // 进一步增加不透明度
+                        });
+                    }
+                    
+                    objectsToAnimate.push({ mesh: emitPart, initialMaterial, targetMaterial });
+                } catch (error) {
+                    console.warn('处理emit材质时出错:', emitPart.name, error);
+                }
+            });
+        } else {
+            console.log('没有emit对象需要处理');
+        }
+        
+        // 执行动画
+        const startTime = performance.now();
+        
+        function animate(time) {
+            const elapsed = time - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // 使用缓动函数，使动画更加平滑
+            const easedProgress = progress < 0.5 ? 
+                2 * progress * progress : 
+                -1 + (4 - 2 * progress) * progress;
+            
+            // 更新每个物体的材质
+            objectsToAnimate.forEach(({ mesh, initialMaterial, targetMaterial }) => {
+                try {
+                    // 创建新的材质，混合初始和目标材质的属性
+                    const currentMaterial = new THREE.MeshStandardMaterial();
+                    
+                    // 混合颜色
+                    currentMaterial.color.lerpColors(initialMaterial.color, targetMaterial.color, easedProgress);
+                    
+                    // 混合自发光颜色
+                    if (initialMaterial.emissive && targetMaterial.emissive) {
+                        currentMaterial.emissive.lerpColors(initialMaterial.emissive, targetMaterial.emissive, easedProgress);
+                    }
+                    
+                    // 混合自发光强度
+                    currentMaterial.emissiveIntensity = THREE.MathUtils.lerp(
+                        initialMaterial.emissiveIntensity || 0,
+                        targetMaterial.emissiveIntensity || 0,
+                        easedProgress
+                    );
+                    
+                    // 混合金属度
+                    currentMaterial.metalness = THREE.MathUtils.lerp(
+                        initialMaterial.metalness || 0,
+                        targetMaterial.metalness || 0,
+                        easedProgress
+                    );
+                    
+                    // 混合粗糙度
+                    currentMaterial.roughness = THREE.MathUtils.lerp(
+                        initialMaterial.roughness || 0.5,
+                        targetMaterial.roughness || 0.5,
+                        easedProgress
+                    );
+                    
+                    // 混合不透明度
+                    if (targetMaterial.transparent) {
+                        currentMaterial.transparent = true;
+                        currentMaterial.opacity = THREE.MathUtils.lerp(
+                            initialMaterial.opacity || 1,
+                            targetMaterial.opacity || 1,
+                            easedProgress
+                        );
+                    }
+                    
+                    // 应用新材质
+                    mesh.material = currentMaterial;
+                    mesh.material.needsUpdate = true;
+                } catch (error) {
+                    console.warn('动画过程中出错:', mesh.name, error);
+                }
             });
             
+            // 更新辉光效果
             updateBloomEffect();
             
-            setTimeout(resolve, duration);
+            // 强制渲染
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+            
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                // 动画结束，应用最终材质
+                objectsToAnimate.forEach(({ mesh, targetMaterial }) => {
+                    try {
+                        mesh.material = targetMaterial;
+                        mesh.material.needsUpdate = true;
+                        mesh.updateMatrix();
+                        mesh.updateMatrixWorld(true);
+                    } catch (error) {
+                        console.warn('应用最终材质时出错:', mesh.name, error);
+                    }
+                });
+                
+                // 强制渲染
+                if (renderer && scene && camera) {
+                    renderer.render(scene, camera);
+                }
+                
+                console.log('=== 切换所有灯带完成 ===');
+            }
+        }
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+    }
+    
+    // 自动演示：缓慢打开/关闭所有灯带（呼吸灯效果）
+    function autoToggleAllEmitGlows(duration = 1000, targetState = null) {
+        return new Promise((resolve) => {
+            console.log('=== 开始自动演示灯带切换 ===');
+            
+            // 确定目标状态
+            let newActiveState;
+            if (targetState !== null) {
+                newActiveState = targetState;
+                console.log('使用指定的目标状态:', newActiveState);
+            } else {
+                // 检查屏幕状态：如果屏幕是开启的，灯带也应该开启
+                console.log('检查屏幕状态，屏幕数量:', materialGroups.screen.length);
+                const screenActive = materialGroups.screen.some(screen => {
+                    const active = screen.userData && screen.userData.active;
+                    console.log('屏幕:', screen.name, 'active:', active);
+                    return active;
+                });
+                newActiveState = screenActive;
+                console.log('最终屏幕状态:', screenActive, '新的灯带状态:', newActiveState);
+            }
+            
+            // 保存所有物体的初始状态
+            const objectsToAnimate = [];
+            
+            // 处理特殊材质 "dd"
+            if (ddMaterialMeshes.length > 0) {
+                console.log('自动演示：处理特殊材质dd，共', ddMaterialMeshes.length, '个');
+                ddMaterialMeshes.forEach((ddMesh, index) => {
+                    try {
+                        console.log('自动演示：处理dd物体', index + 1, ':', ddMesh.name);
+                        ddMesh.userData.active = newActiveState;
+                        
+                        // 保存初始状态
+                        const initialMaterial = ddMesh.material.clone();
+                        let targetMaterial;
+                        
+                        if (newActiveState) {
+                            // 屏幕开启：使用原始材质
+                            targetMaterial = ddMesh.userData.originalMaterial ? ddMesh.userData.originalMaterial.clone() : initialMaterial;
+                        } else {
+                            // 屏幕关闭：使用暗蓝色半透明材质
+                            targetMaterial = new THREE.MeshStandardMaterial({
+                                color: 0x1a2a3a, // 暗蓝色
+                                metalness: 0.1,
+                                roughness: 0.9, // 增加粗糙度
+                                emissive: 0x000000,
+                                emissiveIntensity: 0,
+                                transparent: true,
+                                opacity: 0.9 // 进一步增加不透明度
+                            });
+                        }
+                        
+                        objectsToAnimate.push({ mesh: ddMesh, initialMaterial, targetMaterial });
+                    } catch (error) {
+                        console.warn('自动演示：处理dd材质时出错:', ddMesh.name, error);
+                    }
+                });
+            } else {
+                console.log('自动演示：未找到dd材质');
+            }
+            
+            // 处理emit对象
+            if (materialGroups.emit.length > 0) {
+                console.log('自动演示：处理emit对象:', materialGroups.emit.length, '个');
+                materialGroups.emit.forEach(emitPart => {
+                    try {
+                        emitPart.userData.active = newActiveState;
+                        
+                        // 保存初始状态
+                        const initialMaterial = emitPart.material.clone();
+                        let targetMaterial;
+                        
+                        if (newActiveState) {
+                            // 屏幕开启：使用原始材质
+                            targetMaterial = emitPart.userData.originalMaterial ? emitPart.userData.originalMaterial.clone() : initialMaterial;
+                        } else {
+                            // 屏幕关闭：使用暗蓝色半透明材质
+                            targetMaterial = new THREE.MeshStandardMaterial({
+                                color: 0x1a2a3a, // 暗蓝色
+                                metalness: 0.1,
+                                roughness: 0.9, // 增加粗糙度
+                                emissive: 0x000000,
+                                emissiveIntensity: 0,
+                                transparent: true,
+                                opacity: 0.9 // 进一步增加不透明度
+                            });
+                        }
+                        
+                        objectsToAnimate.push({ mesh: emitPart, initialMaterial, targetMaterial });
+                    } catch (error) {
+                        console.warn('自动演示：处理emit材质时出错:', emitPart.name, error);
+                    }
+                });
+            } else {
+                console.log('自动演示：没有emit对象需要处理');
+            }
+            
+            // 执行动画
+            const startTime = performance.now();
+            
+            function animate(time) {
+                const elapsed = time - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                
+                // 使用缓动函数，使动画更加平滑
+                let easedProgress;
+                if (newActiveState) {
+                    // 开启过程：使用标准缓动函数，使渐亮更自然
+                    easedProgress = progress < 0.5 ? 
+                        2 * progress * progress : 
+                        -1 + (4 - 2 * progress) * progress;
+                } else {
+                    // 关闭过程：使用更平缓的缓动函数，使渐灭更自然，开始时变化较慢
+                    easedProgress = 1 - Math.pow(1 - progress, 3);
+                }
+                
+                // 更新每个物体的材质
+                objectsToAnimate.forEach(({ mesh, initialMaterial, targetMaterial }) => {
+                    try {
+                        // 创建新的材质，混合初始和目标材质的属性
+                        const currentMaterial = new THREE.MeshStandardMaterial();
+                        
+                        // 混合颜色
+                        currentMaterial.color.lerpColors(initialMaterial.color, targetMaterial.color, easedProgress);
+                        
+                        // 混合自发光颜色
+                        if (initialMaterial.emissive && targetMaterial.emissive) {
+                            currentMaterial.emissive.lerpColors(initialMaterial.emissive, targetMaterial.emissive, easedProgress);
+                        }
+                        
+                        // 混合自发光强度
+                        currentMaterial.emissiveIntensity = THREE.MathUtils.lerp(
+                            initialMaterial.emissiveIntensity || 0,
+                            targetMaterial.emissiveIntensity || 0,
+                            easedProgress
+                        );
+                        
+                        // 混合金属度
+                        currentMaterial.metalness = THREE.MathUtils.lerp(
+                            initialMaterial.metalness || 0,
+                            targetMaterial.metalness || 0,
+                            easedProgress
+                        );
+                        
+                        // 混合粗糙度
+                        currentMaterial.roughness = THREE.MathUtils.lerp(
+                            initialMaterial.roughness || 0.5,
+                            targetMaterial.roughness || 0.5,
+                            easedProgress
+                        );
+                        
+                        // 混合不透明度
+                        if (targetMaterial.transparent) {
+                            currentMaterial.transparent = true;
+                            currentMaterial.opacity = THREE.MathUtils.lerp(
+                                initialMaterial.opacity || 1,
+                                targetMaterial.opacity || 1,
+                                easedProgress
+                            );
+                        }
+                        
+                        // 应用新材质
+                        mesh.material = currentMaterial;
+                        mesh.material.needsUpdate = true;
+                    } catch (error) {
+                        console.warn('自动演示：动画过程中出错:', mesh.name, error);
+                    }
+                });
+                
+                // 更新辉光效果
+                updateBloomEffect();
+                
+                // 强制渲染
+                if (renderer && scene && camera) {
+                    renderer.render(scene, camera);
+                }
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    // 动画结束，应用最终材质
+                    objectsToAnimate.forEach(({ mesh, targetMaterial }) => {
+                        try {
+                            mesh.material = targetMaterial;
+                            mesh.material.needsUpdate = true;
+                            mesh.updateMatrix();
+                            mesh.updateMatrixWorld(true);
+                        } catch (error) {
+                            console.warn('自动演示：应用最终材质时出错:', mesh.name, error);
+                        }
+                    });
+                    
+                    // 强制渲染
+                    if (renderer && scene && camera) {
+                        renderer.render(scene, camera);
+                    }
+                    
+                    console.log('自动演示：灯带切换动画完成');
+                    resolve();
+                }
+            }
+            
+            // 开始动画
+            requestAnimationFrame(animate);
         });
     }
     
@@ -2781,7 +3243,7 @@
         });
     }
     
-    // 切换抽屉状态（修复版 - 在局部坐标系中移动）
+    // 切换抽屉状态（修复版 - 简化方法）
    function toggleDrawer(drawerObject, customDuration) {
     if (!drawerObject) {
         console.warn('未找到抽屉对象');
@@ -2800,31 +3262,20 @@
     const drawerOpen = !actualDrawer.userData.open;
     actualDrawer.userData.open = drawerOpen;
     
+    // 确保初始位置设置正确
     if (!actualDrawer.userData.initialPosition) {
-        // 保存初始局部位置
         actualDrawer.userData.initialPosition = actualDrawer.position.clone();
-        actualDrawer.userData.initialLocalPosition = actualDrawer.position.clone();
-        console.log('保存初始局部位置:', actualDrawer.userData.initialLocalPosition);
+        console.log('保存初始位置:', actualDrawer.userData.initialPosition);
     }
     
-    // 在局部坐标系中移动抽屉（模型局部：Z 向上，Y 朝向相机，沿局部 Y 轴 -200）
-    const moveDistance = drawerMoveDistance;
-    let moveAxis = new THREE.Vector3(0, 1, 0); // 默认沿局部 Y 轴
-    if (actualDrawer.userData.moveAxis) {
-        moveAxis = actualDrawer.userData.moveAxis.clone();
-    }
-    
-    // 目标位置 = 初始局部位置 + 局部轴向位移
+    // 直接计算目标位置：打开时向下移动200，关闭时回到初始位置
     const targetPosition = actualDrawer.userData.initialPosition.clone();
     if (drawerOpen) {
-        targetPosition.add(moveAxis.clone().multiplyScalar(moveDistance));
-        console.log(`抽屉打开，局部位移: ${moveDistance} mm`);
-    } else {
-        console.log('抽屉关闭，回到初始位置');
+        // 直接沿Y轴向下移动200
+        targetPosition.y -= 200;
     }
     
-    console.log('当前位置:', actualDrawer.position.toArray());
-    console.log('目标位置:', targetPosition.toArray());
+    console.log(`抽屉${drawerOpen ? '打开' : '关闭'}，目标位置:`, targetPosition.toArray());
     
     // 动画参数
     const startPosition = actualDrawer.position.clone();
@@ -2848,16 +3299,6 @@
         // 强制更新矩阵
         actualDrawer.updateMatrix();
         actualDrawer.updateMatrixWorld(true);
-        
-        // 更新所有子对象的矩阵
-        actualDrawer.traverse((child) => {
-            if (child.isMesh) {
-                child.updateMatrix();
-                child.updateMatrixWorld(true);
-            }
-        });
-        
-        console.log(`动画进度: ${progress.toFixed(2)}, 当前位置:`, actualDrawer.position.toArray());
         
         if (progress < 1) {
             requestAnimationFrame(animateDrawer);
@@ -2989,8 +3430,8 @@
     }
     
     // 自动演示：渐亮/渐暗所有屏幕
-    function autoToggleAllScreens(duration = 500) {
-        return new Promise((resolve) => {
+    function autoToggleAllScreens(duration = 1000) {
+        return new Promise(async (resolve) => {
             if (materialGroups.screen.length === 0) {
                 resolve();
                 return;
@@ -3002,41 +3443,30 @@
             document.getElementById('interaction-status').style.backgroundColor = newActiveState ? '#10b981' : '#f59e0b';
             document.getElementById('interaction-status-text').textContent = newActiveState ? '屏幕开启' : '屏幕关闭';
             
-            const startTime = performance.now();
+            // 先更新所有屏幕的状态
+            materialGroups.screen.forEach(screen => {
+                screen.userData.active = newActiveState;
+            });
             
-            function animate(time) {
-                const elapsed = time - startTime;
-                const progress = Math.min(elapsed / duration, 1);
-                
-                const easedProgress = progress < 0.5 ? 
-                    2 * progress * progress : 
-                    -1 + (4 - 2 * progress) * progress;
-                
-                materialGroups.screen.forEach(screen => {
-                    screen.userData.active = newActiveState;
-                    
-                    if (screen.userData.isBaked && screen.userData.offMaterial && screen.userData.onMaterial) {
-                        const t = newActiveState ? easedProgress : 1 - easedProgress;
-                        screen.material = t > 0.5 ? screen.userData.onMaterial : screen.userData.offMaterial;
-                    } else if (screen.userData.offMaterial && screen.userData.onMaterial) {
-                        const t = newActiveState ? easedProgress : 1 - easedProgress;
-                        screen.material = t > 0.5 ? screen.userData.onMaterial : screen.userData.offMaterial;
-                    }
-                    if (screen.material) {
-                        screen.material.needsUpdate = true;
-                    }
-                });
-                
-                updateBloomEffect();
-                
-                if (progress < 1) {
-                    requestAnimationFrame(animate);
-                } else {
-                    resolve();
+            // 同步切换灯带状态，与屏幕切换完全同步
+            await autoToggleAllEmitGlows(duration, newActiveState);
+            
+            // 对于烘焙材质的屏幕，直接切换材质
+            materialGroups.screen.forEach(screen => {
+                if (screen.userData.isBaked && screen.userData.offMaterial && screen.userData.onMaterial) {
+                    // 烘焙材质：直接切换材质
+                    screen.material = newActiveState ? screen.userData.onMaterial : screen.userData.offMaterial;
+                } else if (screen.userData.offMaterial && screen.userData.onMaterial) {
+                    // 非烘焙材质：直接切换材质
+                    screen.material = newActiveState ? screen.userData.onMaterial : screen.userData.offMaterial;
                 }
-            }
+                if (screen.material) {
+                    screen.material.needsUpdate = true;
+                }
+            });
             
-            requestAnimationFrame(animate);
+            updateBloomEffect();
+            resolve();
         });
     }
     
@@ -3084,7 +3514,7 @@
             door.updateMatrixWorld(true);
         });
         
-        // 重置屏幕到关闭状态
+        // 重置屏幕到关闭状态（直接切换材质，不使用动画）
         materialGroups.screen.forEach(screen => {
             screen.userData.active = false;
             if (screen.userData.offMaterial) {
@@ -3093,18 +3523,49 @@
             if (screen.material) {
                 screen.material.needsUpdate = true;
             }
+            console.log('重置屏幕：设置为关闭状态:', screen.name);
         });
         
-        // 重置灯带到关闭状态
+        // 重置灯带 - 关闭状态（直接切换材质，不使用动画）
         materialGroups.emit.forEach(emitPart => {
             emitPart.userData.active = false;
             if (emitPart.material) {
-                emitPart.material.emissiveIntensity = 0.3;
-                emitPart.material.emissive.set(0x0066ff);
-                emitPart.material.color.set(0x0066ff);
+                // 改为暗蓝色半透明材质
+                emitPart.material = new THREE.MeshStandardMaterial({
+                    color: 0x1a2a3a, // 暗蓝色
+                    metalness: 0.1,
+                    roughness: 0.9, // 增加粗糙度
+                    emissive: 0x000000,
+                    emissiveIntensity: 0,
+                    transparent: true,
+                    opacity: 0.9 // 增加不透明度
+                });
                 emitPart.material.needsUpdate = true;
+                console.log('重置灯带：改为暗蓝色半透明材质:', emitPart.name);
             }
         });
+        
+        // 重置dd物体 - 关闭状态（直接切换材质，不使用动画）
+        if (ddMaterialMeshes.length > 0) {
+            console.log('重置dd物体，共', ddMaterialMeshes.length, '个');
+            ddMaterialMeshes.forEach((ddMesh, index) => {
+                ddMesh.userData.active = false;
+                if (ddMesh.material) {
+                    // 改为暗蓝色半透明材质
+                    ddMesh.material = new THREE.MeshStandardMaterial({
+                        color: 0x1a2a3a, // 暗蓝色
+                        metalness: 0.1,
+                        roughness: 0.9, // 增加粗糙度
+                        emissive: 0x000000,
+                        emissiveIntensity: 0,
+                        transparent: true,
+                        opacity: 0.9 // 增加不透明度
+                    });
+                    ddMesh.material.needsUpdate = true;
+                    console.log('重置dd物体：改为暗蓝色半透明材质:', ddMesh.name);
+                }
+            });
+        }
         
         updateDoorStatus();
         updateBloomEffect();
@@ -3203,59 +3664,59 @@
         
         console.log('=== 开始自动演示 ===');
         
-        // 首先重置所有部件到初始状态
-        resetAllParts();
-        
-        // 开始模型自旋转（旋转一周的时间设为20秒）
-        isModelRotating = true;
-        console.log('模型开始自旋转（一周约20秒）');
-        
-        // 等待1秒让用户准备
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // 1. 打开屏幕（500ms渐亮）
-        console.log('步骤1: 打开屏幕');
-        await autoToggleAllScreens(500);
-        
-        // 2. 打开灯带
-        console.log('步骤2: 打开灯带');
-        await autoToggleAllEmitGlows(500);
-        
-        // 3. 柜门和推拉门同时打开
-        console.log('步骤3: 打开柜门和推拉门');
-        await autoToggleAllCabinetDoors(true, 1500);
-        await autoToggleAllSlidingDoors(true, 1800);
-        
-        // 4. 抽屉打开
-        console.log('步骤4: 打开抽屉');
-        await autoToggleAllDrawers(true, 1500);
-        
-        // 等待2秒，让用户看清所有打开的状态
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // 5. 依次关闭：抽屉 -> 柜门和推拉门 -> 灯带显示器
-        console.log('步骤5: 关闭抽屉');
-        await autoToggleAllDrawers(false, 1500);
-        
-        console.log('步骤6: 关闭柜门和推拉门');
-        await autoToggleAllCabinetDoors(false, 1500);
-        await autoToggleAllSlidingDoors(false, 1800);
-        
-        console.log('步骤7: 关闭灯带');
-        await autoToggleAllEmitGlows(500);
-        
-        console.log('步骤8: 关闭屏幕');
-        await autoToggleAllScreens(500);
-        
-        // 等待1秒，让所有关闭动作完成
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // 停止模型自旋转
-        isModelRotating = false;
-        console.log('模型停止自旋转');
-        
-        console.log('=== 自动演示完成 ===');
-        isAutoPlaying = false;
+        try {
+            // 首先重置所有部件到初始状态
+            resetAllParts();
+            
+            // 开始模型自旋转（旋转一周的时间设为20秒）
+            isModelRotating = true;
+            console.log('模型开始自旋转（一周约20秒）');
+            
+            // 等待1秒让用户准备
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // 1. 打开屏幕和灯带（1000ms渐亮，同步）
+            console.log('步骤1: 打开屏幕和灯带');
+            await autoToggleAllScreens(1000);
+            
+            // 2. 柜门和推拉门同时打开
+            console.log('步骤2: 打开柜门和推拉门');
+            await autoToggleAllCabinetDoors(true, 1500);
+            await autoToggleAllSlidingDoors(true, 1800);
+            
+            // 3. 抽屉打开
+            console.log('步骤3: 打开抽屉');
+            await autoToggleAllDrawers(true, 1500);
+            
+            // 等待2秒，让用户看清所有打开的状态
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // 4. 依次关闭：抽屉 -> 柜门和推拉门 -> 灯带显示器
+            console.log('步骤4: 关闭抽屉');
+            await autoToggleAllDrawers(false, 1500);
+            
+            console.log('步骤5: 关闭柜门和推拉门');
+            await autoToggleAllCabinetDoors(false, 1500);
+            await autoToggleAllSlidingDoors(false, 1800);
+            
+            console.log('步骤6: 关闭屏幕和灯带');
+            await autoToggleAllScreens(1000);
+            
+            // 等待1秒，让所有关闭动作完成
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // 停止模型自旋转
+            isModelRotating = false;
+            console.log('模型停止自旋转');
+            
+            console.log('=== 自动演示完成 ===');
+        } catch (error) {
+            console.error('自动演示出错:', error);
+            // 出错时也要停止旋转
+            isModelRotating = false;
+        } finally {
+            isAutoPlaying = false;
+        }
     }
     
     // 播放背景音乐
@@ -3550,17 +4011,20 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         
         console.log(`点击了: "${clickedObject.name}", 类型: ${partType}`);
         
+        // 只处理屏幕和灯带的点击，取消柜门、抽屉和推拉门的点击动作
         if (partType === 'screen') {
             toggleAllScreens();
         } else if (partType === 'emit') {
             toggleAllEmitGlows();
-        } else if (partType === 'cabinetDoor') {
-            toggleCabinetDoor(clickedObject);
-        } else if (partType === 'drawer') {
-            toggleDrawer(clickedObject);
-        } else if (partType === 'slidingDoor') {
-            toggleSlidingDoor(clickedObject);
         }
+        // 取消以下点击动作，只保留拖动动作
+        // } else if (partType === 'cabinetDoor') {
+        //     toggleCabinetDoor(clickedObject);
+        // } else if (partType === 'drawer') {
+        //     toggleDrawer(clickedObject);
+        // } else if (partType === 'slidingDoor') {
+        //     toggleSlidingDoor(clickedObject);
+        // }
     }
     
     // 鼠标移动：更新轮廓高亮（仅对未被遮挡的可交互物体高亮；柜门/抽屉高亮整组）
@@ -3569,6 +4033,12 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
         
+        // 处理拖动
+        if (isDragging && draggedObject) {
+            handleDrag(event);
+            return;
+        }
+        
         const hit = getFirstHitInteractive();
         const list = outlinePass.selectedObjects;
         list.length = 0;
@@ -3576,6 +4046,327 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             const outlineTarget = (hit.object.userData && hit.object.userData.parentGroup) ? hit.object.userData.parentGroup : hit.object;
             list.push(outlineTarget);
         }
+    }
+    
+    // 处理拖动逻辑
+    function handleDrag(event) {
+        // 禁用轨道控制器，避免旋转冲突
+        controls.enabled = false;
+        
+        const rect = renderer.domElement.getBoundingClientRect();
+        const currentMouseX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        const currentMouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        const mouseDeltaX = currentMouseX - dragStartMouse.x;
+        const mouseDeltaY = currentMouseY - dragStartMouse.y;
+        
+        const objectType = draggedObject.userData.type;
+        
+        if (objectType === 'drawer') {
+            // 抽屉：向下拖动为开（沿局部Y轴负方向）
+            // 确保初始位置设置正确（模型定义的局部坐标0点）
+            if (!draggedObject.userData.initialPosition) {
+                // 重置为模型定义的初始位置（局部坐标0点）
+                draggedObject.userData.initialPosition = draggedObject.position.clone();
+                // 记录局部坐标的初始位置为0
+                draggedObject.userData.localPositionY = 0;
+            }
+            
+            // 鼠标向下拖动时，沿局部Y轴负向移动（打开）
+            // 鼠标向上拖动时，沿局部Y轴正向移动（关闭）
+            // 注意：鼠标向下移动时，mouseDeltaY为负值
+            const moveDistance = -mouseDeltaY * 700; // 按要求设置灵敏度，负号反转方向
+            
+            // 计算新的局部位置，确保在0-200范围内（向下为正）
+            const currentLocalPosition = draggedObject.userData.localPositionY || 0;
+            const newLocalPositionY = Math.max(0, Math.min(200, currentLocalPosition + moveDistance));
+            
+            // 更新局部位置记录
+            draggedObject.userData.localPositionY = newLocalPositionY;
+            
+            // 应用新的位置
+            // 重置到初始全局位置
+            draggedObject.position.copy(draggedObject.userData.initialPosition);
+            // 沿局部Y轴负向移动（向下）
+            draggedObject.translateY(-newLocalPositionY);
+            
+            draggedObject.userData.open = newLocalPositionY > 100; // 超过一半算打开
+        } else if (objectType === 'cabinetDoor') {
+            // 柜门：严格执行0-85度范围旋转
+            // 基于门的名称检测左右门
+            const doorName = draggedObject.name;
+            let effectiveMouseDeltaX = mouseDeltaX;
+            
+            // 检测左右门
+            if (doorName.includes('left')) {
+                // 左侧门：向左拖动为开（反转鼠标移动方向）
+                effectiveMouseDeltaX = -mouseDeltaX;
+            } else if (doorName.includes('right')) {
+                // 右侧门：向右拖动为开（保持鼠标移动方向）
+                effectiveMouseDeltaX = mouseDeltaX;
+            }
+            
+            const rotateAngle = effectiveMouseDeltaX * Math.PI * 0.5; // 按要求减小灵敏度
+            const maxAngle = 85 * Math.PI / 180;
+            
+            // 确保从初始旋转开始计算，而不是从当前旋转
+            if (!draggedObject.userData.initialRotation) {
+                draggedObject.userData.initialRotation = draggedObject.rotation.clone();
+            }
+            
+            // 计算新的旋转角度，确保在0-85度范围内
+            const currentRotation = draggedObject.rotation.z - draggedObject.userData.initialRotation.z;
+            const newRotation = Math.max(0, Math.min(maxAngle, currentRotation + rotateAngle));
+            
+            // 应用新的旋转
+            draggedObject.rotation.z = draggedObject.userData.initialRotation.z + newRotation;
+            draggedObject.userData.open = newRotation > maxAngle * 0.5; // 超过一半算打开
+        } else if (objectType === 'slidingDoor') {
+            // 推拉门：沿局部X轴移动，范围0-450
+            // 确保初始位置设置正确（模型定义的局部坐标0点）
+            if (!draggedObject.userData.initialPosition) {
+                // 重置为模型定义的初始位置（局部坐标0点）
+                draggedObject.userData.initialPosition = draggedObject.position.clone();
+                // 记录局部坐标的初始位置为0
+                draggedObject.userData.localPositionX = 0;
+            }
+            
+            // 检测左右门
+            const doorName = draggedObject.name;
+            
+            // 计算移动距离（支持双向移动）
+            let moveDistance = mouseDeltaX * 700; // 按要求设置灵敏度
+            
+            // 对于右门，反转移动距离方向，确保与鼠标拖动方向一致
+            if (doorName.includes('right')) {
+                moveDistance = -moveDistance;
+            }
+            
+            // 计算新的局部位置，确保在0-450范围内
+            const currentLocalPosition = draggedObject.userData.localPositionX || 0;
+            const newLocalPositionX = Math.max(0, Math.min(450, currentLocalPosition + moveDistance));
+            
+            // 更新局部位置记录
+            draggedObject.userData.localPositionX = newLocalPositionX;
+            
+            // 应用新的位置
+            // 重置到初始全局位置
+            draggedObject.position.copy(draggedObject.userData.initialPosition);
+            
+            // 根据门的类型应用移动
+            if (doorName.includes('right')) {
+                // 右门：沿局部X轴负向移动，范围0-450
+                draggedObject.translateX(-newLocalPositionX);
+            } else {
+                // 左门：沿局部X轴正向移动，范围0-450
+                draggedObject.translateX(newLocalPositionX);
+            }
+            
+            draggedObject.userData.open = newLocalPositionX > 0; // 大于0就算打开
+        }
+        
+        // 强制更新矩阵
+        draggedObject.updateMatrix();
+        draggedObject.updateMatrixWorld(true);
+    }
+    
+    // 处理鼠标按下事件
+    function onCanvasMouseDown(event) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        const hit = getFirstHitInteractive();
+        if (!hit) return;
+        
+        const clickedObject = hit.object;
+        const partType = hit.type;
+        
+        // 只允许拖动柜门、抽屉和推拉门
+        if (partType === 'cabinetDoor' || partType === 'drawer' || partType === 'slidingDoor') {
+            // 获取实际要拖动的对象（如果是子网格，使用父组）
+            draggedObject = (clickedObject.userData && clickedObject.userData.parentGroup) ? clickedObject.userData.parentGroup : clickedObject;
+            
+            if (draggedObject) {
+                isDragging = true;
+                dragStartMouse.x = mouse.x;
+                dragStartMouse.y = mouse.y;
+                dragStartPosition.copy(draggedObject.position);
+                dragStartRotation.copy(draggedObject.rotation);
+                
+                console.log('开始拖动:', draggedObject.name, '类型:', partType);
+            }
+        }
+    }
+    
+    // 处理鼠标释放事件
+    function onCanvasMouseUp(event) {
+        if (isDragging && draggedObject) {
+            console.log('结束拖动:', draggedObject.name);
+        }
+        
+        // 重新启用轨道控制器
+        controls.enabled = true;
+        
+        isDragging = false;
+        draggedObject = null;
+    }
+    
+    // 处理触摸开始事件
+    function onCanvasTouchStart(event) {
+        if (event.touches.length > 0) {
+            const touch = event.touches[0];
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            const hit = getFirstHitInteractive();
+            if (!hit) return;
+            
+            const clickedObject = hit.object;
+            const partType = hit.type;
+            
+            // 只允许拖动柜门、抽屉和推拉门
+            if (partType === 'cabinetDoor' || partType === 'drawer' || partType === 'slidingDoor') {
+                // 获取实际要拖动的对象（如果是子网格，使用父组）
+                draggedObject = (clickedObject.userData && clickedObject.userData.parentGroup) ? clickedObject.userData.parentGroup : clickedObject;
+                
+                if (draggedObject) {
+                    // 禁用轨道控制器，避免旋转冲突
+                    controls.enabled = false;
+                    
+                    isDragging = true;
+                    dragStartMouse.x = mouse.x;
+                    dragStartMouse.y = mouse.y;
+                    dragStartPosition.copy(draggedObject.position);
+                    dragStartRotation.copy(draggedObject.rotation);
+                    
+                    console.log('开始触摸拖动:', draggedObject.name, '类型:', partType);
+                }
+            }
+        }
+    }
+    
+    // 处理触摸移动事件
+    function onCanvasTouchMove(event) {
+        if (event.touches.length > 0) {
+            const touch = event.touches[0];
+            
+            // 处理拖动
+            if (isDragging && draggedObject) {
+                // 禁用轨道控制器，避免旋转冲突
+                controls.enabled = false;
+                
+                const rect = renderer.domElement.getBoundingClientRect();
+                const currentMouseX = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+                const currentMouseY = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+                
+                const mouseDeltaX = currentMouseX - dragStartMouse.x;
+                const mouseDeltaY = currentMouseY - dragStartMouse.y;
+                
+                const objectType = draggedObject.userData.type;
+                
+                if (objectType === 'drawer') {
+                    // 抽屉：向下拖动为开（沿局部Y轴负方向）
+                    // 确保初始位置设置正确（模型定义的局部坐标0点）
+                    if (!draggedObject.userData.initialPosition) {
+                        // 重置为模型定义的初始位置（局部坐标0点）
+                        draggedObject.userData.initialPosition = draggedObject.position.clone();
+                        // 记录局部坐标的初始位置为0
+                        draggedObject.userData.localPositionY = 0;
+                    }
+                    
+                    // 鼠标向下拖动时，沿局部Y轴负向移动（打开）
+                    // 鼠标向上拖动时，沿局部Y轴正向移动（关闭）
+                    // 注意：鼠标向下移动时，mouseDeltaY为负值
+                    const moveDistance = -mouseDeltaY * 700; // 按要求设置灵敏度，负号反转方向
+                    
+                    // 计算新的局部位置，确保在0-200范围内（向下为正）
+                    const currentLocalPosition = draggedObject.userData.localPositionY || 0;
+                    const newLocalPositionY = Math.max(0, Math.min(200, currentLocalPosition + moveDistance));
+                    
+                    // 更新局部位置记录
+                    draggedObject.userData.localPositionY = newLocalPositionY;
+                    
+                    // 应用新的位置
+                    // 重置到初始全局位置
+                    draggedObject.position.copy(draggedObject.userData.initialPosition);
+                    // 沿局部Y轴负向移动（向下）
+                    draggedObject.translateY(-newLocalPositionY);
+                    
+                    draggedObject.userData.open = newLocalPositionY > 100; // 超过一半算打开
+                } else if (objectType === 'cabinetDoor') {
+                    // 柜门：严格执行0-85度范围旋转
+                    const doorName = draggedObject.name;
+                    let effectiveMouseDeltaX = mouseDeltaX;
+                    
+                    if (doorName.includes('left')) {
+                        effectiveMouseDeltaX = -mouseDeltaX;
+                    } else if (doorName.includes('right')) {
+                        effectiveMouseDeltaX = mouseDeltaX;
+                    }
+                    
+                    const rotateAngle = effectiveMouseDeltaX * Math.PI * 0.5;
+                    const maxAngle = 85 * Math.PI / 180;
+                    
+                    if (!draggedObject.userData.initialRotation) {
+                        draggedObject.userData.initialRotation = draggedObject.rotation.clone();
+                    }
+                    
+                    const currentRotation = draggedObject.rotation.z - draggedObject.userData.initialRotation.z;
+                    const newRotation = Math.max(0, Math.min(maxAngle, currentRotation + rotateAngle));
+                    
+                    draggedObject.rotation.z = draggedObject.userData.initialRotation.z + newRotation;
+                    draggedObject.userData.open = newRotation > maxAngle * 0.5;
+                } else if (objectType === 'slidingDoor') {
+                    // 推拉门：沿局部X轴移动，范围0-450
+                    if (!draggedObject.userData.initialPosition) {
+                        draggedObject.userData.initialPosition = draggedObject.position.clone();
+                        draggedObject.userData.localPositionX = 0;
+                    }
+                    
+                    const doorName = draggedObject.name;
+                    let moveDistance = mouseDeltaX * 700;
+                    
+                    if (doorName.includes('right')) {
+                        moveDistance = -moveDistance;
+                    }
+                    
+                    const currentLocalPosition = draggedObject.userData.localPositionX || 0;
+                    const newLocalPositionX = Math.max(0, Math.min(450, currentLocalPosition + moveDistance));
+                    
+                    draggedObject.userData.localPositionX = newLocalPositionX;
+                    draggedObject.position.copy(draggedObject.userData.initialPosition);
+                    
+                    if (doorName.includes('right')) {
+                        draggedObject.translateX(-newLocalPositionX);
+                    } else {
+                        draggedObject.translateX(newLocalPositionX);
+                    }
+                    
+                    draggedObject.userData.open = newLocalPositionX > 0;
+                }
+                
+                // 强制更新矩阵
+                draggedObject.updateMatrix();
+                draggedObject.updateMatrixWorld(true);
+                
+                return;
+            }
+        }
+    }
+    
+    // 处理触摸结束事件
+    function onCanvasTouchEnd(event) {
+        if (isDragging && draggedObject) {
+            console.log('结束触摸拖动:', draggedObject.name);
+        }
+        
+        // 重新启用轨道控制器
+        controls.enabled = true;
+        
+        isDragging = false;
+        draggedObject = null;
     }
     
     // 窗口大小调整处理
@@ -3695,6 +4486,15 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         window.addEventListener('resize', onWindowResize);
         renderer.domElement.addEventListener('click', onCanvasClick);
         renderer.domElement.addEventListener('mousemove', onCanvasMouseMove);
+        renderer.domElement.addEventListener('mousedown', onCanvasMouseDown);
+        renderer.domElement.addEventListener('mouseup', onCanvasMouseUp);
+        renderer.domElement.addEventListener('mouseleave', onCanvasMouseUp);
+        
+        // 添加触摸事件监听器，支持手机端拖动
+        renderer.domElement.addEventListener('touchstart', onCanvasTouchStart);
+        renderer.domElement.addEventListener('touchmove', onCanvasTouchMove);
+        renderer.domElement.addEventListener('touchend', onCanvasTouchEnd);
+        renderer.domElement.addEventListener('touchcancel', onCanvasTouchEnd);
         
         // 开始动画循环
         animate();
