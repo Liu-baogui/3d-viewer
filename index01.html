@@ -1299,7 +1299,8 @@
         {
             "imports": {
                 "three": "./js/three.module.js",
-                "three/addons/": "./js/three/addons/"
+                "three/addons/": "./js/three/addons/",
+                "three/addons/loaders/DRACOLoader.js": "./js/libs/draco/DRACOLoader.js"
             }
         }
     </script>
@@ -1428,7 +1429,13 @@
     function getDracoLoader() {
         if (!dracoLoader) {
             dracoLoader = new DRACOLoader();
-            dracoLoader.setDecoderPath('./js/libs/draco/');
+            // 构建绝对路径，确保在本地和 GitHub Pages 上都能正确解析
+            // 移除路径末尾的文件名，只保留目录路径
+            let baseUrl = window.location.href;
+            if (baseUrl.includes('index01.html')) {
+                baseUrl = baseUrl.replace('index01.html', '');
+            }
+            dracoLoader.setDecoderPath(baseUrl + 'js/libs/draco/');
         }
         return dracoLoader;
     }
