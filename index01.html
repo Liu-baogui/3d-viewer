@@ -1429,13 +1429,7 @@
     function getDracoLoader() {
         if (!dracoLoader) {
             dracoLoader = new DRACOLoader();
-            // 构建绝对路径，确保在本地和 GitHub Pages 上都能正确解析
-            // 移除路径末尾的文件名，只保留目录路径
-            let baseUrl = window.location.href;
-            if (baseUrl.includes('index01.html')) {
-                baseUrl = baseUrl.replace('index01.html', '');
-            }
-            dracoLoader.setDecoderPath(baseUrl + 'js/libs/draco/');
+            dracoLoader.setDecoderPath('./js/libs/draco/');
         }
         return dracoLoader;
     }
@@ -2209,7 +2203,7 @@
                         emissive: 0x000000,
                         emissiveIntensity: 0,
                         transparent: true,
-                        opacity: 0.9 // 进一步增加不透明度
+                        opacity: 0.9 // 增加不透明度
                     });
                     child.material.needsUpdate = true;
                 }
@@ -2468,11 +2462,11 @@
             mesh.material = new THREE.MeshStandardMaterial({
                 color: 0x1a2a3a, // 暗蓝色
                 metalness: 0.1,
-                roughness: 0.8,
+                roughness: 0.9, // 增加粗糙度
                 emissive: 0x000000,
                 emissiveIntensity: 0,
                 transparent: true,
-                opacity: 0.5
+                opacity: 0.9 // 增加不透明度
             });
         } else {
             // 没有烘焙贴图时使用默认设置
@@ -2480,11 +2474,11 @@
             mesh.material = new THREE.MeshStandardMaterial({
                 color: 0x1a2a3a, // 暗蓝色
                 metalness: 0.1,
-                roughness: 0.8,
+                roughness: 0.9, // 增加粗糙度
                 emissive: 0x000000,
                 emissiveIntensity: 0,
                 transparent: true,
-                opacity: 0.5
+                opacity: 0.9 // 增加不透明度
             });
         }
         
