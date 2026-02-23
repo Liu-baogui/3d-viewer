@@ -2640,7 +2640,14 @@
                     
                     if (newActiveState) {
                         // 屏幕开启：使用原始材质
-                        targetMaterial = ddMesh.userData.originalMaterial ? ddMesh.userData.originalMaterial.clone() : initialMaterial;
+                        if (ddMesh.userData.originalMaterial) {
+                            targetMaterial = ddMesh.userData.originalMaterial.clone();
+                            console.log('使用原始材质:', ddMesh.name);
+                        } else {
+                            // 如果没有原始材质，使用当前材质
+                            targetMaterial = initialMaterial;
+                            console.log('没有原始材质，使用当前材质:', ddMesh.name);
+                        }
                     } else {
                         // 屏幕关闭：使用暗蓝色半透明材质
                         targetMaterial = new THREE.MeshStandardMaterial({
@@ -2652,6 +2659,7 @@
                             transparent: true,
                             opacity: 0.9 // 增加不透明度
                         });
+                        console.log('使用暗蓝色半透明材质:', ddMesh.name);
                     }
                     
                     objectsToAnimate.push({ mesh: ddMesh, initialMaterial, targetMaterial });
@@ -2660,7 +2668,22 @@
                 }
             });
         } else {
-            console.log('未找到dd材质');
+            console.log('未找到dd材质 - 当前模型可能没有dd物体');
+            // 尝试重新查找dd物体
+            if (model) {
+                console.log('尝试重新查找dd物体...');
+                let foundCount = 0;
+                model.traverse((child) => {
+                    if (child.isMesh && child.name && child.name.toLowerCase().includes('dd')) {
+                        console.log('重新发现dd物体:', child.name);
+                        ddMaterialMeshes.push(child);
+                        child.userData = child.userData || {};
+                        child.userData.originalMaterial = child.material.clone();
+                        foundCount++;
+                    }
+                });
+                console.log('重新查找完成，找到', foundCount, '个dd物体');
+            }
         }
         
         // 执行动画
@@ -2803,7 +2826,14 @@
                         
                         if (newActiveState) {
                             // 屏幕开启：使用原始材质
-                            targetMaterial = ddMesh.userData.originalMaterial ? ddMesh.userData.originalMaterial.clone() : initialMaterial;
+                            if (ddMesh.userData.originalMaterial) {
+                                targetMaterial = ddMesh.userData.originalMaterial.clone();
+                                console.log('自动演示：使用原始材质:', ddMesh.name);
+                            } else {
+                                // 如果没有原始材质，使用当前材质
+                                targetMaterial = initialMaterial;
+                                console.log('自动演示：没有原始材质，使用当前材质:', ddMesh.name);
+                            }
                         } else {
                             // 屏幕关闭：使用暗蓝色半透明材质
                             targetMaterial = new THREE.MeshStandardMaterial({
@@ -2815,6 +2845,7 @@
                                 transparent: true,
                                 opacity: 0.9 // 进一步增加不透明度
                             });
+                            console.log('自动演示：使用暗蓝色半透明材质:', ddMesh.name);
                         }
                         
                         objectsToAnimate.push({ mesh: ddMesh, initialMaterial, targetMaterial });
@@ -2823,7 +2854,61 @@
                     }
                 });
             } else {
-                console.log('自动演示：未找到dd材质');
+                console.log('自动演示：未找到dd材质 - 当前模型可能没有dd物体');
+                // 尝试重新查找dd物体
+                if (model) {
+                    console.log('自动演示：尝试重新查找dd物体...');
+                    let foundCount = 0;
+                    model.traverse((child) => {
+                        if (child.isMesh && child.name && child.name.toLowerCase().includes('dd')) {
+                            console.log('自动演示：重新发现dd物体:', child.name);
+                            ddMaterialMeshes.push(child);
+                            child.userData = child.userData || {};
+                            child.userData.originalMaterial = child.material.clone();
+                            foundCount++;
+                        }
+                    });
+                    console.log('自动演示：重新查找完成，找到', foundCount, '个dd物体');
+                    
+                    // 如果找到了新的dd物体，重新处理
+                    if (foundCount > 0) {
+                        console.log('自动演示：处理新发现的dd物体...');
+                        ddMaterialMeshes.forEach((ddMesh, index) => {
+                            try {
+                                console.log('自动演示：处理新发现的dd物体', index + 1, ':', ddMesh.name);
+                                ddMesh.userData.active = newActiveState;
+                                
+                                // 保存初始状态
+                                const initialMaterial = ddMesh.material.clone();
+                                let targetMaterial;
+                                
+                                if (newActiveState) {
+                                    // 屏幕开启：使用原始材质
+                                    if (ddMesh.userData.originalMaterial) {
+                                        targetMaterial = ddMesh.userData.originalMaterial.clone();
+                                    } else {
+                                        targetMaterial = initialMaterial;
+                                    }
+                                } else {
+                                    // 屏幕关闭：使用暗蓝色半透明材质
+                                    targetMaterial = new THREE.MeshStandardMaterial({
+                                        color: 0x1a2a3a, // 暗蓝色
+                                        metalness: 0.1,
+                                        roughness: 0.9, // 增加粗糙度
+                                        emissive: 0x000000,
+                                        emissiveIntensity: 0,
+                                        transparent: true,
+                                        opacity: 0.9 // 进一步增加不透明度
+                                    });
+                                }
+                                
+                                objectsToAnimate.push({ mesh: ddMesh, initialMaterial, targetMaterial });
+                            } catch (error) {
+                                console.warn('自动演示：处理新发现的dd材质时出错:', ddMesh.name, error);
+                            }
+                        });
+                    }
+                }
             }
             
 
@@ -3362,6 +3447,35 @@
                     console.log('重置dd物体：改为暗蓝色半透明材质:', ddMesh.name);
                 }
             });
+        } else {
+            console.log('重置时未找到dd材质 - 尝试重新查找');
+            // 尝试重新查找dd物体
+            if (model) {
+                console.log('尝试重新查找dd物体...');
+                let foundCount = 0;
+                model.traverse((child) => {
+                    if (child.isMesh && child.name && child.name.toLowerCase().includes('dd')) {
+                        console.log('重新发现dd物体:', child.name);
+                        ddMaterialMeshes.push(child);
+                        child.userData = child.userData || {};
+                        child.userData.originalMaterial = child.material.clone();
+                        // 立即设置为关闭状态
+                        child.userData.active = false;
+                        child.material = new THREE.MeshStandardMaterial({
+                            color: 0x1a2a3a, // 暗蓝色
+                            metalness: 0.1,
+                            roughness: 0.9, // 增加粗糙度
+                            emissive: 0x000000,
+                            emissiveIntensity: 0,
+                            transparent: true,
+                            opacity: 0.9 // 增加不透明度
+                        });
+                        child.material.needsUpdate = true;
+                        foundCount++;
+                    }
+                });
+                console.log('重新查找完成，找到', foundCount, '个dd物体');
+            }
         }
         
         updateDoorStatus();
