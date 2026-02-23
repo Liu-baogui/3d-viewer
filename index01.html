@@ -1356,7 +1356,6 @@
         metal: [],
         paint: [],
         screen: [],
-        emit: [],
         door: [],
         drawer: []
     };
@@ -1381,9 +1380,11 @@
     
     // 自动演示相关
     let isAutoPlaying = false;
-    let autoPlayQueue = [];
     let isModelRotating = false;
     let modelRotationSpeed = (2 * Math.PI) / 20; // 20秒旋转一周
+    
+    // 模型加载状态
+    let isModelLoading = false;
     
     // 拖动相关
     let isDragging = false;
@@ -1446,15 +1447,75 @@
     
     // 加载模型函数（支持 .glb、.glb.gz 及 Draco 压缩网格）
     function loadModel(modelPath = 'models/default_model.glb') {
+        console.log('=============================================');
+        console.log('=== 开始加载模型:', modelPath, '===');
+        console.log('=============================================');
+        
+        // 防止重复加载
+        if (isModelLoading) {
+            console.log('模型正在加载中，请等待完成...');
+            return;
+        }
+        
+        isModelLoading = true;
+        console.log('设置isModelLoading为true');
+        
         // 停止之前的自动演示和模型旋转
         isAutoPlaying = false;
         isModelRotating = false;
+        console.log('停止自动演示和模型旋转');
         
+        // 1. 清空场景，只保留必要对象
+        console.log('1. 开始清空场景...');
+        const objectsToKeep = [];
+        
+        scene.traverse((child) => {
+            if (child.isLight) {
+                objectsToKeep.push(child);
+                console.log('保留灯光:', child.type);
+            }
+            if (child.userData && child.userData.isShadowCatcher) {
+                objectsToKeep.push(child);
+                console.log('保留阴影接收器');
+            }
+        });
+        
+        // 清空场景
+        console.log('清空场景...');
+        while (scene.children.length > 0) {
+            const child = scene.children[0];
+            console.log('移除:', child.name || '(未命名)', child.type);
+            scene.remove(child);
+        }
+        
+        // 添加回保留的对象
+        console.log('添加回保留的对象...');
+        objectsToKeep.forEach(obj => {
+            scene.add(obj);
+        });
+        
+        console.log('场景清空完成，剩余对象数量:', scene.children.length);
+        
+        // 2. 重置所有引用和数组
+        console.log('2. 重置所有引用和数组...');
+        model = null;
+        materialGroups = { metal: [], paint: [], screen: [], door: [], drawer: [] };
+        ddMaterialMeshes = [];
+        cabinetDoors = [];
+        drawers = [];
+        slidingDoors = [];
+        console.log('所有引用和数组已重置');
+        
+        // 3. 准备加载器
+        console.log('3. 准备加载器...');
         const loader = new GLTFLoader();
         loader.setDRACOLoader(getDracoLoader());
         loader.setMeshoptDecoder(MeshoptDecoder);
         const isCompressed = /\.gz$/i.test(modelPath);
+        console.log('加载器准备完成，压缩格式:', isCompressed);
         
+        // 4. 显示加载界面
+        console.log('4. 显示加载界面...');
         const loadingEl = document.getElementById('loading');
         loadingEl.style.display = 'flex';
         loadingEl.innerHTML = `
@@ -1467,75 +1528,70 @@
         `;
         setLoadingProgress(0, isCompressed ? '正在加载压缩模型...' : '正在加载模型...');
         
-        if (model) {
-            scene.remove(model);
-            model = null;
-        }
-        
-        // 重置数组
-        materialGroups = {
-            metal: [],
-            paint: [],
-            screen: [],
-            emit: [],
-            door: [],
-            drawer: []
-        };
-        
-        // 重置特殊材质数组
-        ddMaterialMeshes = [];
-        
-        cabinetDoors = [];
-        drawers = [];
-        slidingDoors = [];
-        
+        // 5. 定义加载完成回调
         function onModelLoaded(gltf) {
+            console.log('=============================================');
+            console.log('=== 模型加载完成，开始处理新模型 ===');
+            console.log('=============================================');
+            
+            // 再次清空场景，确保没有任何残留
+            console.log('再次清空场景...');
+            const objectsToKeepFinal = [];
+            scene.traverse((child) => {
+                if (child.isLight || (child.userData && child.userData.isShadowCatcher)) {
+                    objectsToKeepFinal.push(child);
+                }
+            });
+            
+            while (scene.children.length > 0) {
+                scene.remove(scene.children[0]);
+            }
+            
+            objectsToKeepFinal.forEach(obj => scene.add(obj));
+            console.log('场景清空完成，准备添加新模型');
+            
+            // 添加新模型
+            console.log('添加新模型到场景...');
             model = gltf.scene;
             scene.add(model);
+            console.log('新模型已添加到场景');
             
-            console.log('=== 模型加载完成 ===');
-            console.log('开始遍历模型对象...');
+            // 处理模型
+            console.log('开始处理模型...');
+            model.userData.initialRotation = model.rotation.clone();
             
-            // 打印模型中所有对象的名称，便于调试
+            // 遍历模型对象
             let objectList = [];
             model.traverse((child) => {
                 objectList.push({
                     name: child.name || '(未命名)',
-                    type: child.isGroup ? 'Group' : (child.isMesh ? 'Mesh' : 'Object3D'),
-                    isGroup: child.isGroup,
-                    isMesh: child.isMesh
+                    type: child.isGroup ? 'Group' : (child.isMesh ? 'Mesh' : 'Object3D')
                 });
             });
-            
-            console.log('模型对象列表:');
+            console.log('模型包含', objectList.length, '个对象');
             console.table(objectList);
             
-            model.userData.initialRotation = model.rotation.clone();
-            
+            // 处理材质和识别部件
+            console.log('处理模型材质...');
             processModelMaterials(model);
+            console.log('识别柜门、抽屉和推拉门...');
             identifyDoorsAndDrawers(model);
             
+            // 缩放和定位模型
+            console.log('缩放和定位模型...');
             const box = new THREE.Box3().setFromObject(model);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
-            
             const maxDim = Math.max(size.x, size.y, size.z);
-            let scale = 7 / maxDim;
-            
-            // 手机端使用更小的缩放比例，确保模型不会超出屏幕
-            if (window.innerWidth <= 480) {
-                scale = 5 / maxDim;
-            }
-            
+            let scale = window.innerWidth <= 480 ? 5 / maxDim : 7 / maxDim;
             model.scale.setScalar(scale);
-            
             model.position.sub(center.multiplyScalar(scale));
-            
-            // 手机端模型位置上移
             if (window.innerWidth <= 480) {
                 model.position.y += 1.0;
             }
             
+            // 更新UI
+            console.log('更新UI...');
             const selectedModel = modelList.find(m => m.path === modelPath);
             if (selectedModel) {
                 document.getElementById('model-name').textContent = selectedModel.name;
@@ -1544,40 +1600,46 @@
             
             document.getElementById('model-status').style.backgroundColor = '#10b981';
             document.getElementById('model-status-text').textContent = '模型已加载';
-            
             document.getElementById('loading').style.display = 'none';
             
-            console.log('模型加载成功:', modelPath);
-            
+            // 更新材质和效果
+            console.log('更新材质和效果...');
             updateMetalMaterials();
             updatePaintMaterials();
-            
-            setTimeout(() => {
-                updateShadowPosition();
-            }, 100);
-            
+            setTimeout(() => updateShadowPosition(), 100);
             updateLightIntensity();
             updateBloomEffect();
             
-            console.log('分组信息:');
-            console.log('- 屏幕:', materialGroups.screen.length);
-            console.log('- 金属:', materialGroups.metal.length);
-            console.log('- 油漆:', materialGroups.paint.length);
-            console.log('- 灯带:', materialGroups.emit.length);
-            console.log('- 柜门:', materialGroups.door.length);
-            console.log('- 抽屉:', materialGroups.drawer.length);
-            
-            // 立即播放背景音乐
+            // 播放音乐
+            console.log('播放背景音乐...');
             playBackgroundMusic();
             
-            // 稍等一下再开始自动演示
+            // 立即开始模型旋转，不等自动演示
+            console.log('模型开始自旋转...');
+            isModelRotating = true;
+            
+            // 1秒后开始自动演示
+            console.log('1秒后开始自动演示...');
             setTimeout(() => {
                 startAutoDemo();
-            }, 500);
+            }, 1000);
+            
+            // 完成加载
+            console.log('=============================================');
+            console.log('=== 模型加载完成:', modelPath, '===');
+            console.log('=============================================');
+            
+            // 重置标志
+            isModelLoading = false;
+            console.log('设置isModelLoading为false');
         }
         
+        // 6. 定义加载错误回调
         function onModelError(error) {
-            console.error('模型加载失败:', error);
+            console.error('=============================================');
+            console.error('=== 模型加载失败:', error, '===');
+            console.error('=============================================');
+            
             document.getElementById('loading').innerHTML = `
                 <div style="color: #ff6b6b; text-align: center;">
                     <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 10px;"></i>
@@ -1590,12 +1652,15 @@
             document.getElementById('model-status').style.backgroundColor = '#f59e0b';
             document.getElementById('model-status-text').textContent = '模型加载失败';
             
-            createFallbackModel();
-            updateBloomEffect();
+            // 重置标志
+            isModelLoading = false;
+            console.log('设置isModelLoading为false');
         }
         
+        // 7. 开始加载模型
+        console.log('7. 开始加载模型...');
         if (isCompressed) {
-            // 压缩格式 .glb.gz：XHR 下载（带进度）→ 解压 → 解析
+            console.log('加载压缩模型...');
             const xhr = new XMLHttpRequest();
             xhr.open('GET', modelPath);
             xhr.responseType = 'arraybuffer';
@@ -1603,8 +1668,6 @@
                 if (e.lengthComputable && e.total > 0) {
                     const p = (e.loaded / e.total) * 90;
                     setLoadingProgress(p, '正在下载... ' + Math.round(p) + '%');
-                } else {
-                    setLoadingProgress(50, '正在下载... (' + (e.loaded / 1024).toFixed(1) + ' KB)');
                 }
             };
             xhr.onload = async function() {
@@ -1622,12 +1685,7 @@
                     let glbBuffer;
                     const data = new Uint8Array(compressedBuffer);
                     if (typeof pako !== 'undefined' && pako.ungzip) {
-                        let decompressed;
-                        try {
-                            decompressed = pako.ungzip(data);
-                        } catch (e) {
-                            decompressed = pako.inflate(data);
-                        }
+                        let decompressed = pako.ungzip(data);
                         glbBuffer = decompressed.buffer.slice(decompressed.byteOffset, decompressed.byteOffset + decompressed.byteLength);
                     } else {
                         const stream = new Blob([compressedBuffer]).stream().pipeThrough(new DecompressionStream('gzip'));
@@ -1643,6 +1701,7 @@
             xhr.onerror = function() { onModelError(new Error('网络错误')); };
             xhr.send();
         } else {
+            console.log('加载普通模型...');
             loader.load(
                 modelPath,
                 onModelLoaded,
@@ -1650,10 +1709,6 @@
                     if (xhr.lengthComputable && xhr.total > 0) {
                         const p = (xhr.loaded / xhr.total) * 100;
                         setLoadingProgress(p, '正在加载模型...');
-                        console.log(p.toFixed(1) + '% loaded');
-                    } else {
-                        setLoadingProgress(50, '正在加载模型... (' + (xhr.loaded / 1024).toFixed(1) + ' KB)');
-                        console.log(xhr.loaded + ' bytes loaded');
                     }
                 },
                 onModelError
@@ -1723,17 +1778,17 @@
                     const option = document.createElement('option');
                     option.value = modelItem.path;
                     option.textContent = modelItem.name;
-                    if (index === 0) {
-                        option.selected = true;
-                    }
                     modelSelect.appendChild(option);
                 });
+                // 设置第一个选项为默认选中
+                if (modelSelect.options.length > 0) {
+                    modelSelect.options[0].selected = true;
+                }
             } else {
                 // 如果没有检测到模型，添加一个默认选项
                 const option = document.createElement('option');
                 option.value = 'models/default_model.glb';
                 option.textContent = '默认模型（尝试加载）';
-                option.selected = true;
                 modelSelect.appendChild(option);
             }
         } catch (error) {
@@ -1955,18 +2010,7 @@
                     return;
                 }
                 
-                // 辅助函数：检查是否是柜门（支持多种拼写变体）
-                function isCabinetDoor(name) {
-                    return name.includes('cabinetdoor') || 
-                           name.includes('cabinnetdoor') || 
-                           name.includes('cabinet door') ||
-                           (name.includes('door') && name.includes('cabinet'));
-                }
-                
-                // 辅助函数：检查是否是推拉门（包含door但不是柜门）
-                function isSlidingDoor(name) {
-                    return name.includes('door') && !isCabinetDoor(name);
-                }
+
                 
                 // 识别独立的柜门Mesh
                 if (isCabinetDoor(meshName)) {
@@ -2180,8 +2224,8 @@
                 }
                 
                 // 检测特殊材质 "dd"（灵活匹配）
-                // 注意：如果物体名称包含"emit"，优先作为emit物体处理
-                if (originalName.toLowerCase().includes('dd') && !originalName.toLowerCase().includes('emit')) {
+                // 所有包含dd的物体都作为特殊材质处理，包括包含emit的物体
+                if (originalName.toLowerCase().includes('dd')) {
                     console.log('发现特殊材质 "dd":', child.name, '原始名称:', originalName);
                     // 添加到数组中
                     ddMaterialMeshes.push(child);
@@ -2206,6 +2250,7 @@
                         opacity: 0.9 // 增加不透明度
                     });
                     child.material.needsUpdate = true;
+                    return;
                 }
                 
                 // 检测是否有烘焙贴图
@@ -2230,34 +2275,22 @@
                 
                 // 其他有烘焙贴图的部件
                 if (hasBakedTexture) {
-                    // 对于emit对象，保持原始烘焙材质
-                    if (meshName.includes('emit') || meshName.includes('light') || meshName.includes('led')) {
-                        console.log(`保持emit对象的原始烘焙材质: ${child.name}`);
-                        materialGroups.emit.push(child);
-                        // 不覆盖已有的userData，只添加必要的属性
-                        child.userData = child.userData || {};
-                        child.userData.type = 'emit';
-                        applyEmitMaterial(child);
-                        processedCount++;
-                        return;
-                    } else {
-                        // 其他部件：不使用烘焙材质，使用标准材质
-                        console.log(`忽略烘焙材质，使用标准材质: ${child.name}`);
-                        
-                        // 根据名称分类并使用标准材质
-                        if (meshName.includes('metal')) {
-                            materialGroups.metal.push(child);
-                            child.userData = { type: 'metal' };
-                            applyMetalMaterial(child);
-                        } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
-                            materialGroups.paint.push(child);
-                            child.userData = { type: 'paint' };
-                            applyPaintMaterial(child);
-                        }
-                        
-                        processedCount++;
-                        return;
+                    // 其他部件：不使用烘焙材质，使用标准材质
+                    console.log(`忽略烘焙材质，使用标准材质: ${child.name}`);
+                    
+                    // 根据名称分类并使用标准材质
+                    if (meshName.includes('metal')) {
+                        materialGroups.metal.push(child);
+                        child.userData = { type: 'metal' };
+                        applyMetalMaterial(child);
+                    } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
+                        materialGroups.paint.push(child);
+                        child.userData = { type: 'paint' };
+                        applyPaintMaterial(child);
                     }
+                    
+                    processedCount++;
+                    return;
                 }
                 
                 // 原始的非烘焙贴图处理逻辑
@@ -2271,12 +2304,6 @@
                     materialGroups.paint.push(child);
                     child.userData = { type: 'paint' };
                     applyPaintMaterial(child);
-                    processedCount++;
-                }
-                else if (meshName.includes('emit') || meshName.includes('blue') || meshName.includes('light') || meshName.includes('led')) {
-                    materialGroups.emit.push(child);
-                    child.userData = { type: 'emit' };
-                    applyEmitMaterial(child);
                     processedCount++;
                 }
 
@@ -2436,56 +2463,7 @@
         mesh.userData.originalColor = originalColor;
     }
     
-    // 应用发光材质
-    function applyEmitMaterial(mesh) {
-        mesh.userData = mesh.userData || {};
-        mesh.userData.active = false; // 初始状态设为关闭
-        
-        // 检查是否有烘焙贴图
-        const hasTexture = mesh.material && (mesh.material.map || 
-                                           mesh.material.emissiveMap || 
-                                           mesh.material.roughnessMap || 
-                                           mesh.material.metalnessMap ||
-                                           mesh.material.normalMap ||
-                                           mesh.material.aoMap);
-        
-        // 保存原始材质（如果有烘焙贴图）
-        if (hasTexture) {
-            mesh.userData.originalMaterial = mesh.material.clone();
-            mesh.userData.hasBakedTexture = true;
-            console.log('保存emit对象的原始烘焙材质:', mesh.name);
-            console.log('原始自发光强度:', mesh.material.emissiveIntensity);
-            console.log('原始自发光颜色:', mesh.material.emissive.getHexString());
-            
-            // 初始状态：改为暗蓝色半透明材质，确保辉光效果消失
-            console.log('emit对象初始化：改为暗蓝色半透明材质');
-            mesh.material = new THREE.MeshStandardMaterial({
-                color: 0x1a2a3a, // 暗蓝色
-                metalness: 0.1,
-                roughness: 0.9, // 增加粗糙度
-                emissive: 0x000000,
-                emissiveIntensity: 0,
-                transparent: true,
-                opacity: 0.9 // 增加不透明度
-            });
-        } else {
-            // 没有烘焙贴图时使用默认设置
-            console.log('emit对象无烘焙贴图，使用默认设置:', mesh.name);
-            mesh.material = new THREE.MeshStandardMaterial({
-                color: 0x1a2a3a, // 暗蓝色
-                metalness: 0.1,
-                roughness: 0.9, // 增加粗糙度
-                emissive: 0x000000,
-                emissiveIntensity: 0,
-                transparent: true,
-                opacity: 0.9 // 增加不透明度
-            });
-        }
-        
-        // 强制更新材质
-        mesh.material.needsUpdate = true;
-        console.log('emit对象初始化完成:', mesh.name, '当前状态: 关闭');
-    }
+
     
     // 应用柜门材质（仅用于无烘焙贴图的柜门）
     function applyCabinetDoorMaterial(mesh) {
@@ -2594,104 +2572,7 @@
         });
     }
     
-    // 创建备用模型
-    function createFallbackModel() {
-        model = new THREE.Group();
-        
-        const baseGeometry = new THREE.BoxGeometry(6, 0.5, 3);
-        const baseMaterial = new THREE.MeshStandardMaterial({
-            color: 0x222222,
-            metalness: 0.8,
-            roughness: 0.3
-        });
-        const base = new THREE.Mesh(baseGeometry, baseMaterial);
-        base.castShadow = true;
-        base.receiveShadow = true;
-        base.position.y = -0.25;
-        model.add(base);
-        
-        // 创建显示屏
-        const screenGeometry = new THREE.BoxGeometry(2, 1.5, 0.1);
-        
-        // 创建显示屏贴图
-        const canvas = document.createElement('canvas');
-        canvas.width = 256;
-        canvas.height = 192;
-        const ctx = canvas.getContext('2d');
-        
-        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-        gradient.addColorStop(0, '#001144');
-        gradient.addColorStop(0.5, '#0044aa');
-        gradient.addColorStop(1, '#001144');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
-        ctx.lineWidth = 1;
-        for (let x = 0; x < canvas.width; x += 32) {
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, canvas.height);
-            ctx.stroke();
-        }
-        for (let y = 0; y < canvas.height; y += 32) {
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(canvas.width, y);
-            ctx.stroke();
-        }
-        
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 24px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('显示屏', canvas.width/2, canvas.height/2);
-        
-        const texture = new THREE.CanvasTexture(canvas);
-        const originalColor = new THREE.Color(0x2244aa);
-        
-        const offMaterial = new THREE.MeshStandardMaterial({
-            map: texture,
-            color: new THREE.Color(0x050510),
-            metalness: 0.1,
-            roughness: 0.9,
-            emissive: new THREE.Color(0x000000),
-            emissiveIntensity: 0,
-            transparent: false,
-            opacity: 1.0,
-            side: THREE.FrontSide
-        });
-        
-        const onMaterial = new THREE.MeshStandardMaterial({
-            map: texture,
-            color: originalColor.clone().multiplyScalar(screenOnBrightness),
-            metalness: 0.05,
-            roughness: 0.1,
-            emissive: originalColor.clone().multiplyScalar(screenOnBrightness * 0.8),
-            emissiveIntensity: 0.8,
-            transparent: false,
-            opacity: 1.0,
-            side: THREE.FrontSide
-        });
-        
-        const screen = new THREE.Mesh(screenGeometry, offMaterial);
-        screen.castShadow = true;
-        screen.receiveShadow = true;
-        screen.position.set(0, 1.8, 1.4);
-        screen.userData = { 
-            type: 'screen', 
-            active: false,
-            offMaterial: offMaterial,
-            onMaterial: onMaterial,
-            originalMap: texture,
-            originalColor: originalColor
-        };
-        model.add(screen);
-        materialGroups.screen.push(screen);
-        
-        scene.add(model);
-        document.getElementById('loading').style.display = 'none';
-    }
+
     
     // 切换所有屏幕
     function toggleAllScreens() {
@@ -2731,7 +2612,6 @@
     function toggleAllEmitGlows(duration = 1000) {
         console.log('=== 开始切换所有灯带 ===');
         console.log('当前dd物体数量:', ddMaterialMeshes.length);
-        console.log('当前emit对象数量:', materialGroups.emit.length);
         
         // 检查屏幕状态：如果屏幕是开启的，灯带也应该开启
         console.log('检查屏幕状态，屏幕数量:', materialGroups.screen.length);
@@ -2770,7 +2650,7 @@
                             emissive: 0x000000,
                             emissiveIntensity: 0,
                             transparent: true,
-                            opacity: 0.9 // 进一步增加不透明度
+                            opacity: 0.9 // 增加不透明度
                         });
                     }
                     
@@ -2781,42 +2661,6 @@
             });
         } else {
             console.log('未找到dd材质');
-        }
-        
-        // 处理emit对象
-        if (materialGroups.emit.length > 0) {
-            console.log('处理emit对象:', materialGroups.emit.length, '个');
-            materialGroups.emit.forEach(emitPart => {
-                try {
-                    emitPart.userData.active = newActiveState;
-                    
-                    // 保存初始状态
-                    const initialMaterial = emitPart.material.clone();
-                    let targetMaterial;
-                    
-                    if (newActiveState) {
-                        // 屏幕开启：使用原始材质
-                        targetMaterial = emitPart.userData.originalMaterial ? emitPart.userData.originalMaterial.clone() : initialMaterial;
-                    } else {
-                        // 屏幕关闭：使用暗蓝色半透明材质
-                        targetMaterial = new THREE.MeshStandardMaterial({
-                            color: 0x1a2a3a, // 暗蓝色
-                            metalness: 0.1,
-                            roughness: 0.9, // 增加粗糙度
-                            emissive: 0x000000,
-                            emissiveIntensity: 0,
-                            transparent: true,
-                            opacity: 0.9 // 进一步增加不透明度
-                        });
-                    }
-                    
-                    objectsToAnimate.push({ mesh: emitPart, initialMaterial, targetMaterial });
-                } catch (error) {
-                    console.warn('处理emit材质时出错:', emitPart.name, error);
-                }
-            });
-        } else {
-            console.log('没有emit对象需要处理');
         }
         
         // 执行动画
@@ -2982,41 +2826,7 @@
                 console.log('自动演示：未找到dd材质');
             }
             
-            // 处理emit对象
-            if (materialGroups.emit.length > 0) {
-                console.log('自动演示：处理emit对象:', materialGroups.emit.length, '个');
-                materialGroups.emit.forEach(emitPart => {
-                    try {
-                        emitPart.userData.active = newActiveState;
-                        
-                        // 保存初始状态
-                        const initialMaterial = emitPart.material.clone();
-                        let targetMaterial;
-                        
-                        if (newActiveState) {
-                            // 屏幕开启：使用原始材质
-                            targetMaterial = emitPart.userData.originalMaterial ? emitPart.userData.originalMaterial.clone() : initialMaterial;
-                        } else {
-                            // 屏幕关闭：使用暗蓝色半透明材质
-                            targetMaterial = new THREE.MeshStandardMaterial({
-                                color: 0x1a2a3a, // 暗蓝色
-                                metalness: 0.1,
-                                roughness: 0.9, // 增加粗糙度
-                                emissive: 0x000000,
-                                emissiveIntensity: 0,
-                                transparent: true,
-                                opacity: 0.9 // 进一步增加不透明度
-                            });
-                        }
-                        
-                        objectsToAnimate.push({ mesh: emitPart, initialMaterial, targetMaterial });
-                    } catch (error) {
-                        console.warn('自动演示：处理emit材质时出错:', emitPart.name, error);
-                    }
-                });
-            } else {
-                console.log('自动演示：没有emit对象需要处理');
-            }
+
             
             // 执行动画
             const startTime = performance.now();
@@ -3483,6 +3293,11 @@
             model.updateMatrix();
             model.updateMatrixWorld(true);
         }
+    }
+    
+    // 重置所有部件到初始状态，但保留模型旋转
+    function resetAllPartsExceptRotation() {
+        console.log('=== 重置所有部件到初始状态（保留模型旋转）===');
         
         // 重置柜门到关闭状态
         cabinetDoors.forEach(door => {
@@ -3525,25 +3340,6 @@
                 screen.material.needsUpdate = true;
             }
             console.log('重置屏幕：设置为关闭状态:', screen.name);
-        });
-        
-        // 重置灯带 - 关闭状态（直接切换材质，不使用动画）
-        materialGroups.emit.forEach(emitPart => {
-            emitPart.userData.active = false;
-            if (emitPart.material) {
-                // 改为暗蓝色半透明材质
-                emitPart.material = new THREE.MeshStandardMaterial({
-                    color: 0x1a2a3a, // 暗蓝色
-                    metalness: 0.1,
-                    roughness: 0.9, // 增加粗糙度
-                    emissive: 0x000000,
-                    emissiveIntensity: 0,
-                    transparent: true,
-                    opacity: 0.9 // 增加不透明度
-                });
-                emitPart.material.needsUpdate = true;
-                console.log('重置灯带：改为暗蓝色半透明材质:', emitPart.name);
-            }
         });
         
         // 重置dd物体 - 关闭状态（直接切换材质，不使用动画）
@@ -3666,12 +3462,12 @@
         console.log('=== 开始自动演示 ===');
         
         try {
-            // 首先重置所有部件到初始状态
-            resetAllParts();
+            // 首先重置所有部件到初始状态，但保留模型旋转
+            resetAllPartsExceptRotation();
             
-            // 开始模型自旋转（旋转一周的时间设为20秒）
+            // 确保模型继续自旋转
             isModelRotating = true;
-            console.log('模型开始自旋转（一周约20秒）');
+            console.log('模型继续自旋转（一周约20秒）');
             
             // 等待1秒让用户准备
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -3756,6 +3552,7 @@
         shadowCatcher.position.y = -0.5;
         shadowCatcher.receiveShadow = true;
         shadowCatcher.visible = false;
+        shadowCatcher.userData = { isShadowCatcher: true };
         scene.add(shadowCatcher);
     }
     
@@ -4503,6 +4300,8 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     
     // 处理播放按钮点击事件
     function handlePlayButtonClick() {
+        console.log('=== 开始按钮被点击 ===');
+        
         // 隐藏播放按钮覆盖层
         document.getElementById('play-overlay').classList.add('hidden');
         
@@ -4525,7 +4324,8 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             });
         }
         
-        // 加载默认模型
+        // 直接加载默认模型，确保开始按钮后有模型载入
+        console.log('加载默认模型...');
         loadModel('models/default_model.glb');
     }
     
