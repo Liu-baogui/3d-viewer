@@ -1200,7 +1200,7 @@
                         <span>辉光阈值</span>
                         <span class="slider-value" id="bloom-threshold-value">0.8</span>
                     </div>
-                    <input type="range" min="0.5" max="1.0" step="0.05" value="0.8" class="slider" id="bloom-threshold-slider">
+                    <input type="range" min="0.5" max="3.0" step="0.05" value="0.8" class="slider" id="bloom-threshold-slider">
                 </div>
                 
                 <div class="slider-container">
@@ -1245,9 +1245,9 @@
                 <div class="slider-container">
                     <div class="slider-label">
                         <span>阴影模糊</span>
-                        <span class="slider-value" id="shadow-blur-value">1.0</span>
+                        <span class="slider-value" id="shadow-blur-value">4.0</span>
                     </div>
-                    <input type="range" min="0" max="3" step="0.1" value="1.0" class="slider" id="shadow-blur-slider">
+                    <input type="range" min="0" max="15" step="0.1" value="4.0" class="slider" id="shadow-blur-slider">
                 </div>
                 
                 <div class="toggle-container">
@@ -1339,7 +1339,7 @@
     
     // 油漆材质参数
     let paintBrightness = 0.8;
-    let paintRoughness = 0.1;
+    let paintRoughness = 0.35;
     
     // 辉光参数
     let bloomStrength = 0.4;
@@ -1609,6 +1609,27 @@
             setTimeout(() => updateShadowPosition(), 100);
             updateLightIntensity();
             updateBloomEffect();
+            
+            // 模型加载完成后，确保应用阴影模糊滑块的值
+            setTimeout(() => {
+                const shadowBlurSlider = document.getElementById('shadow-blur-slider');
+                const softShadowToggle = document.getElementById('soft-shadow-toggle');
+                if (shadowBlurSlider && mainLight) {
+                    const initialBlur = parseFloat(shadowBlurSlider.value);
+                    mainLight.shadow.radius = initialBlur;
+                    // 确保软阴影类型正确
+                    if (softShadowToggle && softShadowToggle.checked) {
+                        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                    }
+                    // 强制更新阴影贴图
+                    if (mainLight.shadow.map) {
+                        mainLight.shadow.map.dispose();
+                        mainLight.shadow.map = null;
+                    }
+                    mainLight.shadow.needsUpdate = true;
+                    console.log('模型加载后应用阴影模糊值:', initialBlur);
+                }
+            }, 200);
             
             // 播放音乐
             console.log('播放背景音乐...');
@@ -2267,6 +2288,10 @@
                         applyOriginalScreenMaterial(child);
                     }
                     
+                    // 确保显示器正确处理阴影
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    
                     child.userData = child.userData || {};
                     child.userData.type = 'screen';
                     processedCount++;
@@ -2310,6 +2335,11 @@
                 // 启用阴影
                 child.castShadow = true;
                 child.receiveShadow = true;
+                // 确保几何体计算正确的边界框，这对于阴影投射很重要
+                if (child.geometry) {
+                    child.geometry.computeBoundingBox();
+                    child.geometry.computeBoundingSphere();
+                }
             }
         });
 
@@ -2345,11 +2375,11 @@
             
             // 创建关闭状态材质（基于原始材质）
             const offMaterial = originalMaterial.clone();
-            offMaterial.color = new THREE.Color(0x2a2a3a); // 更亮一些，带点暗蓝色调
-            offMaterial.metalness = 0.5; // 增加金属度，增强反光效果
-            offMaterial.roughness = 0.5; // 调整粗糙度，使反光更均匀
-            offMaterial.emissive = new THREE.Color(0x000000);
-            offMaterial.emissiveIntensity = 0;
+            offMaterial.color = new THREE.Color(0x5a5a5a); // 浅灰色
+            offMaterial.metalness = 0.7; // 增加金属度，增强反光效果
+            offMaterial.roughness = 0.3; // 降低粗糙度，使反光更明显
+            offMaterial.emissive = new THREE.Color(0x2a2a2a); // 轻微自发光，增加反光
+            offMaterial.emissiveIntensity = 0.2; // 低强度自发光
             offMaterial.needsUpdate = true;
             
             // 创建开启状态材质
@@ -2390,11 +2420,11 @@
             // 创建关闭状态材质
             const offMaterial = new THREE.MeshStandardMaterial({
                 map: originalMaterial.map,
-                color: new THREE.Color(0x2a2a3a), // 更亮一些，带点暗蓝色调
-                metalness: 0.5, // 增加金属度，增强反光效果
-                roughness: 0.5, // 调整粗糙度，使反光更均匀
-                emissive: new THREE.Color(0x000000),
-                emissiveIntensity: 0,
+                color: new THREE.Color(0x5a5a5a), // 浅灰色
+                metalness: 0.7, // 增加金属度，增强反光效果
+                roughness: 0.3, // 降低粗糙度，使反光更明显
+                emissive: new THREE.Color(0x2a2a2a), // 轻微自发光，增加反光
+                emissiveIntensity: 0.2, // 低强度自发光
                 transparent: originalMaterial.transparent || false,
                 opacity: originalMaterial.opacity || 1.0,
                 side: THREE.FrontSide
@@ -3797,37 +3827,66 @@
         // 清空现有灯光
         omniLights.forEach(light => scene.remove(light));
         omniLights = [];
-        
+
+// 渲染器软阴影配置（必须加，放在光源创建之前）
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
 // 主方向光（最终优化版）
 mainLight = new THREE.DirectionalLight(0xffffff, mainLightIntensity);
-mainLight.position.set(8, 12, 10); // 降低高度，减少阴影拉伸
+mainLight.position.set(8, 12, 10);
 mainLight.castShadow = true;
 
-// 阴影分辨率保持（保证柔化后不模糊）
-mainLight.shadow.mapSize.width = 2048;
-mainLight.shadow.mapSize.height = 2048;
+// 提高阴影分辨率，确保细腻的阴影效果
+mainLight.shadow.mapSize.width = 4096;
+mainLight.shadow.mapSize.height = 4096;
 
-// 缩短阴影范围
-mainLight.shadow.camera.near = 1;
-mainLight.shadow.camera.far = 20;       // 核心：缩短远裁剪面
-mainLight.shadow.camera.left = -10;
-mainLight.shadow.camera.right = 10;
-mainLight.shadow.camera.top = 10;
-mainLight.shadow.camera.bottom = -3;
+// 优化阴影范围，确保显示器在阴影相机范围内
+mainLight.shadow.camera.near = 0.5;
+mainLight.shadow.camera.far = 30;
+mainLight.shadow.camera.left = -15;
+mainLight.shadow.camera.right = 15;
+mainLight.shadow.camera.top = 15;
+mainLight.shadow.camera.bottom = -5;
 
-// 柔化阴影+微调偏移
-mainLight.shadow.radius = 8;            // 阴影柔化半径
-mainLight.shadow.bias = -0.0015;        // 平衡柔化与悬浮问题
+// 柔化阴影+微调偏移，解决阴影只有框线的问题
+let blurValue = 4; // 默认值
+const shadowBlurSlider = document.getElementById('shadow-blur-slider');
+if (shadowBlurSlider) {
+    blurValue = parseFloat(shadowBlurSlider.value);
+} else {
+    // 如果滑块还未加载，稍后再尝试设置
+    setTimeout(() => {
+        const delayedSlider = document.getElementById('shadow-blur-slider');
+        if (delayedSlider && mainLight) {
+            const initialBlur = parseFloat(delayedSlider.value);
+            mainLight.shadow.radius = initialBlur;
+            // 强制更新阴影贴图
+            if (mainLight.shadow.map) {
+                mainLight.shadow.map.dispose();
+                mainLight.shadow.map = null;
+            }
+            mainLight.shadow.needsUpdate = true;
+            console.log('延迟应用阴影模糊值:', initialBlur);
+        }
+    }, 500);
+}
+mainLight.shadow.radius = blurValue;
+mainLight.shadow.bias = -0.0005;
 
 scene.add(mainLight);
 omniLights.push(mainLight);
 
-// 渲染器软阴影配置（必须加）
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// 强制更新阴影贴图以应用初始模糊值
+if (mainLight.shadow.map) {
+    mainLight.shadow.map.dispose();
+    mainLight.shadow.map = null;
+}
+mainLight.shadow.needsUpdate = true;
+console.log('初始化时应用阴影模糊值:', blurValue);
         // 新增：阴影补光（低强度、冷色调，仅填充阴影暗部）
-        const shadowFillLight = new THREE.DirectionalLight(0xaaaaee, 0.15);
-        shadowFillLight.position.set(5, 8, -5); // 从阴影方向照射，避免抵消主光
+        const shadowFillLight = new THREE.DirectionalLight(0x88ccff, 0.12);
+        shadowFillLight.position.set(5, 8, -5);
         shadowFillLight.castShadow = false;
         scene.add(shadowFillLight);
         omniLights.push(shadowFillLight);
@@ -3854,14 +3913,14 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         omniLights.push(pointLight3);
         
         // 左辅助光（冷色光）
-        leftFillLight = new THREE.DirectionalLight(0x88ccff, leftLightIntensity);
+        leftFillLight = new THREE.DirectionalLight(0x88ccff, leftLightIntensity * 0.8);
         leftFillLight.position.set(-5, 3, 3);
         leftFillLight.castShadow = false;
         scene.add(leftFillLight);
         omniLights.push(leftFillLight);
         
-        // 右辅助光（暖色光）
-        rightFillLight = new THREE.DirectionalLight(0xffaa88, rightLightIntensity);
+        // 右辅助光（冷色光）
+        rightFillLight = new THREE.DirectionalLight(0x88ccff, rightLightIntensity * 0.8);
         rightFillLight.position.set(5, 2, -2);
         rightFillLight.castShadow = false;
         scene.add(rightFillLight);
@@ -4335,10 +4394,14 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.shadowMap.autoUpdate = true;
+        renderer.shadowMap.needsUpdate = true;
         
         renderer.setPixelRatio(window.devicePixelRatio || 1);
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
         renderer.toneMappingExposure = 1.0;
+        
+        // 确保渲染器支持阴影
+        renderer.localClippingEnabled = true;
         
         container.appendChild(renderer.domElement);
         
@@ -4353,6 +4416,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         // 创建后期处理
         composer = new EffectComposer(renderer);
         const renderPass = new RenderPass(scene, camera);
+        renderPass.renderToScreen = true; // 确保渲染到屏幕
         composer.addPass(renderPass);
         
         // 轮廓高亮（鼠标悬停可交互物体）
@@ -4382,6 +4446,11 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         // 设置泛光灯照明系统
         setupOmnidirectionalLighting();
         
+        // 将主要变量暴露到全局作用域，方便调试
+        window.mainLight = mainLight;
+        window.renderer = renderer;
+        window.composer = composer;
+        
         // 设置星空蓝背景
         setStarryBlueBackground();
         
@@ -4407,6 +4476,20 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.domElement.addEventListener('touchmove', onCanvasTouchMove);
         renderer.domElement.addEventListener('touchend', onCanvasTouchEnd);
         renderer.domElement.addEventListener('touchcancel', onCanvasTouchEnd);
+        
+        // 强制初始化时应用滑块的阴影模糊值
+        const shadowBlurSlider = document.getElementById('shadow-blur-slider');
+        if (shadowBlurSlider && mainLight) {
+            const initialBlur = parseFloat(shadowBlurSlider.value);
+            mainLight.shadow.radius = initialBlur;
+            // 强制更新阴影贴图
+            if (mainLight.shadow.map) {
+                mainLight.shadow.map.dispose();
+                mainLight.shadow.map = null;
+            }
+            mainLight.shadow.needsUpdate = true;
+            console.log('初始化阴影模糊值:', initialBlur);
+        }
         
         // 开始动画循环
         animate();
@@ -4654,6 +4737,12 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
                 
                 if (mainLight) {
                     mainLight.shadow.radius = blur;
+                    // 强制更新阴影贴图
+                    if (mainLight.shadow.map) {
+                        mainLight.shadow.map.dispose();
+                        mainLight.shadow.map = null;
+                    }
+                    mainLight.shadow.needsUpdate = true;
                 }
             });
         }
@@ -4666,7 +4755,19 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
                 
                 if (useSoftShadow) {
                     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-                    if (mainLight) mainLight.shadow.radius = 1.5;
+                    // 应用当前的阴影模糊滑块值
+                    const shadowBlurSlider = document.getElementById('shadow-blur-slider');
+                    if (shadowBlurSlider && mainLight) {
+                        const blur = parseFloat(shadowBlurSlider.value);
+                        mainLight.shadow.radius = blur;
+                        // 强制更新阴影贴图
+                        if (mainLight.shadow.map) {
+                            mainLight.shadow.map.dispose();
+                            mainLight.shadow.map = null;
+                        }
+                        mainLight.shadow.needsUpdate = true;
+                        console.log('打开软阴影，应用阴影模糊值:', blur);
+                    }
                 } else {
                     renderer.shadowMap.type = THREE.PCFShadowMap;
                     if (mainLight) mainLight.shadow.radius = 0;
