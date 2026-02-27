@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D操作台 | 交互展示系统</title>
+    <title>3D模型 | 交互展示系统</title>
     <link rel="stylesheet" href="css/font-awesome/css/all.min.css">
     <script src="./js/libs/pako/pako.min.js"></script>
     <style>
@@ -988,7 +988,7 @@
     
     <!-- 播放按钮覆盖层 -->
     <div id="play-overlay" class="play-overlay">
-        <h1 class="main-title">操作台演示系统</h1>
+        <h1 class="main-title">3D模型交互展示系统</h1>
         <div class="rings-container">
             <div class="ring"></div>
             <div class="ring"></div>
@@ -997,7 +997,7 @@
                 <div class="play-icon"></div>
             </button>
         </div>
-        <div class="play-title">点击开始体验</div>
+        <div class="play-title">开始</div>
     </div>
     
     <div id="main-container" class="container">
@@ -1007,8 +1007,8 @@
                     <i class="fas fa-cube"></i>
                 </div>
                 <div class="logo-text">
-                    <h1>3D操作台展示系统</h1>
-                    <p>交互式产品可视化 | 材质识别 | 实时渲染</p>
+                    <h1>3D模型展示系统</h1>
+                    <p>沉浸式交互式产品 | 材质识别 | 实时渲染</p>
                 </div>
             </div>
             
@@ -1040,7 +1040,7 @@
             <div id="three-container"></div>
             <div class="viewer-overlay">
                 <div class="model-info">
-                    <h3 id="model-name">操作台模型 V2.1</h3>
+                    <h3 id="model-name">模型展示</h3>
                     <p id="model-description">金属/玻璃/油漆复合材质 | 支持交互</p>
                 </div>
             </div>
@@ -1048,7 +1048,7 @@
             <!-- 拖动浏览提示 -->
             <div class="drag-hint">
                 <i class="fas fa-mouse"></i>
-                <span>拖动浏览</span>
+                <span>可拖动整体旋转，可拖动活动部件</span>
             </div>
             
             <div class="loading" id="loading" style="display: none;">
@@ -1244,8 +1244,8 @@
                     <li><strong>鼠标滚轮</strong> - 缩放模型大小</li>
                     <li><strong>点击任一显示屏</strong> - 点亮所有显示屏（增强贴图效果）</li>
                     <li><strong>点击任一灯带</strong> - 点亮所有灯带（带光晕效果）</li>
-                    <li><strong>点击任一柜门(CabinetDoor_left/right)</strong> - 打开/关闭柜门（绕Z轴旋转85°）</li>
-                    <li><strong>点击任一抽屉(Drawer1/2)</strong> - 打开/关闭抽屉（沿Y轴移动-200mm）</li>
+                    <li><strong>左右拖动柜门(CabinetDoor_left/right)</strong> - 打开/关闭柜门（绕Z轴旋转85°）</li>
+                    <li><strong>上下拖动抽屉(Drawer1/2)</strong> - 打开/关闭抽屉（沿Y轴移动-200mm）</li>
                        <li><strong>泛光灯照明</strong> - 采用泛光灯加左右辅助光系统</li>
                     <li><strong>模型切换</strong> - 使用顶部下拉菜单选择不同模型</li>
                 </ul>
@@ -1254,7 +1254,7 @@
         
         <footer>
             <div class="copyright">
-                <p>&copy; 2023 3D操作台展示系统 | 基于Three.js构建 | 增强版</p>
+                <p>&copy; 2026 3D模型展示系统 | 基于Three.js构建 | 增强版</p>
             </div>
             <div class="status-indicators">
                 <div class="status-item">
@@ -1718,12 +1718,12 @@ let bloomEnabled = true;
         return new Promise((resolve) => {
             const potentialModels = [
                 { id: 'default', name: '默认模型', description: '演示用默认模型', path: 'models/default_model.glb' },
-                { id: 'model1', name: '操作台1', description: '现代简约风格设计', path: 'models/model1.glb' },
-                { id: 'model2', name: '操作台2', description: '工业风格坚固耐用', path: 'models/model2.glb' },
-                { id: 'model3', name: '操作台3', description: '科技感智能设备', path: 'models/model3.glb' },
-                { id: 'model4', name: '操作台4', description: '医疗设备专用', path: 'models/model4.glb' },
-                { id: 'model5', name: '操作台5', description: '多功能操作台', path: 'models/model5.glb' },
-                { id: 'model6', name: '操作台6', description: '专业级操作台', path: 'models/model6.glb' }
+                { id: 'model1', name: '模型1', description: '现代简约风格设计', path: 'models/model1.glb' },
+                { id: 'model2', name: '模型2', description: '工业风格坚固耐用', path: 'models/model2.glb' },
+                { id: 'model3', name: '模型3', description: '科技感智能设备', path: 'models/model3.glb' },
+                { id: 'model4', name: '模型4', description: '医疗设备专用', path: 'models/model4.glb' },
+                { id: 'model5', name: '模型5', description: '多功能操作台', path: 'models/model5.glb' },
+                { id: 'model6', name: '模型6', description: '专业级操作台', path: 'models/model6.glb' }
             ];
             
             const validModels = [];
