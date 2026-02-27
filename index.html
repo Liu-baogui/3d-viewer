@@ -1433,41 +1433,54 @@ let bloomEnabled = true;
         if (!modelWorker) {
             try {
                 // 创建Web Worker，使用相对路径
-                modelWorker = new Worker('./model-loader.worker.js');
+                // 确保Web Worker文件存在且正确
+                const workerUrl = './model-loader.worker.js';
                 
-                modelWorker.onmessage = function(e) {
-                    const { type, progress, status, modelPath, modelData, error } = e.data;
+                // 检查Web Worker文件是否存在
+                const xhr = new XMLHttpRequest();
+                xhr.open('HEAD', workerUrl, false);
+                xhr.send();
+                
+                if (xhr.status === 200) {
+                    modelWorker = new Worker(workerUrl);
                     
-                    switch (type) {
-                        case 'progress':
-                            setLoadingProgress(progress, status);
-                            break;
-                        case 'complete':
-                            if (modelData) {
-                                // 使用Web Worker返回的模型数据
-                                loadModelFromWorker(modelData);
-                            } else if (modelPath) {
-                                // 模型加载完成，开始实际的模型处理
+                    modelWorker.onmessage = function(e) {
+                        const { type, progress, status, modelPath, modelData, error } = e.data;
+                        
+                        switch (type) {
+                            case 'progress':
+                                setLoadingProgress(progress, status);
+                                break;
+                            case 'complete':
+                                if (modelData) {
+                                    // 使用Web Worker返回的模型数据
+                                    loadModelFromWorker(modelData);
+                                } else if (modelPath) {
+                                    // 模型加载完成，开始实际的模型处理
+                                    loadModelActual(modelPath);
+                                }
+                                break;
+                            case 'error':
+                                console.error('Worker loading error:', error);
+                                // 回退到主线程加载
                                 loadModelActual(modelPath);
-                            }
-                            break;
-                        case 'error':
-                            console.error('Worker loading error:', error);
-                            // 回退到主线程加载
-                            loadModelActual(modelPath);
-                            break;
-                        default:
-                            break;
-                    }
-                };
-                
-                modelWorker.onerror = function(error) {
-                    console.error('Worker error:', error);
-                    // 回退到主线程加载
+                                break;
+                            default:
+                                break;
+                        }
+                    };
+                    
+                    modelWorker.onerror = function(error) {
+                        console.error('Worker error:', error);
+                        // 回退到主线程加载
+                        isWorkerInitialized = false;
+                    };
+                    
+                    isWorkerInitialized = true;
+                } else {
+                    console.error('Worker file not found:', workerUrl);
                     isWorkerInitialized = false;
-                };
-                
-                isWorkerInitialized = true;
+                }
             } catch (error) {
                 console.error('Failed to create worker:', error);
                 isWorkerInitialized = false;
@@ -1708,6 +1721,182 @@ let bloomEnabled = true;
         }
     }
     
+    // 创建内联Web Worker
+    function createModelWorker() {
+        // Web Worker代码
+        const workerCode = `
+            self.onmessage = function(e) {
+                const { action, modelPath } = e.data;
+                
+                switch (action) {
+                    case 'loadModel':
+                        loadModel(modelPath);
+                        break;
+                    default:
+                        console.error('Unknown action:', action);
+                }
+            };
+            
+            function loadModel(modelPath) {
+                try {
+                    const isCompressed = /\.gz$/i.test(modelPath);
+                    
+                    if (isCompressed) {
+                        // 处理压缩模型
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('GET', modelPath);
+                        xhr.responseType = 'arraybuffer';
+                        
+                        xhr.onprogress = function(e) {
+                            if (e.lengthComputable && e.total > 0) {
+                                const progress = (e.loaded / e.total) * 90;
+                                self.postMessage({ 
+                                    type: 'progress', 
+                                    progress: progress, 
+                                    status: '正在下载模型...' 
+                                });
+                            }
+                        };
+                        
+                        xhr.onload = function() {
+                            if (xhr.status !== 200) {
+                                self.postMessage({ 
+                                    type: 'error', 
+                                    error: 'HTTP ' + xhr.status 
+                                });
+                                return;
+                            }
+                            
+                            const compressedBuffer = xhr.response;
+                            if (!compressedBuffer || compressedBuffer.byteLength === 0) {
+                                self.postMessage({ 
+                                    type: 'error', 
+                                    error: '空文件' 
+                                });
+                                return;
+                            }
+                            
+                            self.postMessage({ 
+                                type: 'progress', 
+                                progress: 92, 
+                                status: '正在解压...' 
+                            });
+                            
+                            try {
+                                let glbBuffer;
+                                const data = new Uint8Array(compressedBuffer);
+                                
+                                // 尝试使用pako解压
+                                if (typeof pako !== 'undefined' && pako.ungzip) {
+                                    let decompressed = pako.ungzip(data);
+                                    glbBuffer = decompressed.buffer.slice(decompressed.byteOffset, decompressed.byteOffset + decompressed.byteLength);
+                                } else {
+                                    // 尝试使用原生DecompressionStream
+                                    const stream = new Blob([compressedBuffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+                                    new Response(stream).arrayBuffer().then(glbBuffer => {
+                                        self.postMessage({ 
+                                            type: 'complete', 
+                                            buffer: glbBuffer, 
+                                            isCompressed: true 
+                                        });
+                                    }).catch(error => {
+                                        self.postMessage({ 
+                                            type: 'error', 
+                                            error: '解压失败: ' + error.message 
+                                        });
+                                    });
+                                    return;
+                                }
+                                
+                                self.postMessage({ 
+                                    type: 'complete', 
+                                    buffer: glbBuffer, 
+                                    isCompressed: true 
+                                });
+                            } catch (err) {
+                                self.postMessage({ 
+                                    type: 'error', 
+                                    error: '解压失败: ' + err.message 
+                                });
+                            }
+                        };
+                        
+                        xhr.onerror = function() {
+                            self.postMessage({ 
+                                type: 'error', 
+                                error: '网络错误' 
+                            });
+                        };
+                        
+                        xhr.send();
+                    } else {
+                        // 处理普通模型
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('GET', modelPath);
+                        xhr.responseType = 'arraybuffer';
+                        
+                        xhr.onprogress = function(e) {
+                            if (e.lengthComputable && e.total > 0) {
+                                const progress = (e.loaded / e.total) * 100;
+                                self.postMessage({ 
+                                    type: 'progress', 
+                                    progress: progress, 
+                                    status: '正在加载模型...' 
+                                });
+                            }
+                        };
+                        
+                        xhr.onload = function() {
+                            if (xhr.status !== 200) {
+                                self.postMessage({ 
+                                    type: 'error', 
+                                    error: 'HTTP ' + xhr.status 
+                                });
+                                return;
+                            }
+                            
+                            const buffer = xhr.response;
+                            if (!buffer || buffer.byteLength === 0) {
+                                self.postMessage({ 
+                                    type: 'error', 
+                                    error: '空文件' 
+                                });
+                                return;
+                            }
+                            
+                            self.postMessage({ 
+                                type: 'complete', 
+                                buffer: buffer, 
+                                isCompressed: false 
+                            });
+                        };
+                        
+                        xhr.onerror = function() {
+                            self.postMessage({ 
+                                type: 'error', 
+                                error: '网络错误' 
+                            });
+                        };
+                        
+                        xhr.send();
+                    }
+                } catch (error) {
+                    self.postMessage({ 
+                        type: 'error', 
+                        error: error.message 
+                    });
+                }
+            }
+        `;
+        
+        // 创建Blob URL
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(blob);
+        
+        // 创建Web Worker
+        return new Worker(workerUrl);
+    }
+
     // 加载模型函数（支持 .glb、.glb.gz 及 Draco 压缩网格）
     function loadModel(modelPath = 'models/default_model.glb') {
         // 显示加载界面
@@ -1723,48 +1912,221 @@ let bloomEnabled = true;
         `;
         setLoadingProgress(0, '正在准备加载...');
         
-        // 尝试初始化 Web Worker
         try {
-            initModelWorker();
+            // 创建内联Web Worker
+            const modelWorker = createModelWorker();
             
-            // 使用 Web Worker 加载模型
-            if (isWorkerInitialized && modelWorker) {
-                // 重新设置 worker 的 onmessage 处理函数，确保 modelPath 正确传递
-                modelWorker.onmessage = function(e) {
-                    const { type, progress, status, modelPath: workerModelPath, modelData, error } = e.data;
-                    
-                    switch (type) {
-                        case 'progress':
-                            setLoadingProgress(progress, status);
-                            break;
-                        case 'complete':
-                            if (modelData) {
-                                // 使用Web Worker返回的模型数据
-                                loadModelFromWorker(modelData);
-                            } else if (workerModelPath) {
-                                // 模型加载完成，开始实际的模型处理
-                                loadModelActual(workerModelPath);
-                            }
-                            break;
-                        case 'error':
-                            console.error('Worker loading error:', error);
-                            loadModelActual(modelPath);
-                            break;
-                        default:
-                            break;
-                    }
-                };
+            modelWorker.onmessage = function(e) {
+                const { type, progress, status, buffer, isCompressed, error } = e.data;
                 
-                modelWorker.postMessage({ action: 'loadModel', modelPath: modelPath });
-            } else {
+                switch (type) {
+                    case 'progress':
+                        setLoadingProgress(progress, status);
+                        break;
+                    case 'complete':
+                        // 模型加载完成，在主线程中处理
+                        loadModelFromBuffer(buffer, isCompressed, modelPath);
+                        break;
+                    case 'error':
+                        console.error('Worker loading error:', error);
+                        // 回退到主线程加载
+                        loadModelActual(modelPath);
+                        break;
+                    default:
+                        break;
+                }
+            };
+            
+            modelWorker.onerror = function(error) {
+                console.error('Worker error:', error);
                 // 回退到主线程加载
                 loadModelActual(modelPath);
-            }
+            };
+            
+            // 发送加载请求
+            modelWorker.postMessage({ action: 'loadModel', modelPath: modelPath });
         } catch (error) {
-            console.error('Error with Web Worker:', error);
+            console.error('Error creating worker:', error);
             // 回退到主线程加载
             loadModelActual(modelPath);
         }
+    }
+    
+    // 从Buffer加载模型
+    function loadModelFromBuffer(buffer, isCompressed, modelPath) {
+        // 防止重复加载
+        if (isModelLoading) {
+            return;
+        }
+        
+        isModelLoading = true;
+        
+        // 停止之前的自动演示和模型旋转
+        isAutoPlaying = false;
+        isModelRotating = false;
+        
+        // 1. 清空场景，只保留必要对象
+        const objectsToKeep = [];
+        
+        scene.traverse((child) => {
+            if (child.isLight) {
+                objectsToKeep.push(child);
+            }
+            if (child.userData && child.userData.isShadowCatcher) {
+                objectsToKeep.push(child);
+            }
+        });
+        
+        // 清空场景
+        while (scene.children.length > 0) {
+            scene.remove(scene.children[0]);
+        }
+        
+        // 添加回保留的对象
+        objectsToKeep.forEach(obj => {
+            scene.add(obj);
+        });
+        
+        // 2. 重置所有引用和数组
+        model = null;
+        materialGroups = { metal: [], paint: [], screen: [], door: [], drawer: [] };
+        ddMaterialMeshes = [];
+        cabinetDoors = [];
+        drawers = [];
+        slidingDoors = [];
+        
+        // 3. 准备加载器
+        const loader = new GLTFLoader();
+        loader.setDRACOLoader(getDracoLoader());
+        loader.setMeshoptDecoder(MeshoptDecoder);
+        
+        // 4. 显示加载界面
+        const loadingEl = document.getElementById('loading');
+        loadingEl.style.display = 'flex';
+        loadingEl.innerHTML = `
+            <div class="spinner"></div>
+            <p id="loading-text">${isCompressed ? '正在加载压缩模型...' : '正在加载模型...'}</p>
+            <div class="progress-bar-wrap" style="width: 200px; height: 8px; background: rgba(77,171,247,0.2); border-radius: 4px; overflow: hidden;">
+                <div id="loading-progress" style="height: 100%; width: 95%; background: linear-gradient(90deg, #4dabf7, #748ffc); border-radius: 4px; transition: width 0.2s;"></div>
+            </div>
+            <p id="loading-percent" style="font-size: 0.9rem; color: #8a9bb8;">95%</p>
+        `;
+        setLoadingProgress(95, '正在解析模型...');
+        
+        // 5. 解析模型
+        loader.parse(buffer, '', 
+            function(gltf) {
+                // 再次清空场景，确保没有任何残留
+                const objectsToKeepFinal = [];
+                scene.traverse((child) => {
+                    if (child.isLight || (child.userData && child.userData.isShadowCatcher)) {
+                        objectsToKeepFinal.push(child);
+                    }
+                });
+                
+                while (scene.children.length > 0) {
+                    scene.remove(scene.children[0]);
+                }
+                
+                objectsToKeepFinal.forEach(obj => scene.add(obj));
+                
+                // 添加新模型
+                model = gltf.scene;
+                scene.add(model);
+                
+                // 处理模型
+                model.userData.initialRotation = model.rotation.clone();
+                
+                // 处理材质和识别部件
+                processModel(model);
+                
+                // 缩放和定位模型
+                const box = new THREE.Box3().setFromObject(model);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                let scale = window.innerWidth <= 480 ? 5 / maxDim : 7 / maxDim;
+                model.scale.setScalar(scale);
+                model.position.sub(center.multiplyScalar(scale));
+                if (window.innerWidth <= 480) {
+                    model.position.y += 1.0;
+                }
+                
+                // 更新UI
+                const selectedModel = modelList.find(m => m.path === modelPath);
+                if (selectedModel) {
+                    document.getElementById('model-name').textContent = selectedModel.name;
+                    document.getElementById('model-description').textContent = selectedModel.description;
+                }
+                
+                document.getElementById('model-status').style.backgroundColor = '#10b981';
+                document.getElementById('model-status-text').textContent = '模型已加载';
+                document.getElementById('loading').style.display = 'none';
+                
+                // 更新材质和效果
+                updateMetalMaterials();
+                updatePaintMaterials();
+                setTimeout(() => updateShadowPosition(), 100);
+                updateLightIntensity();
+                updateBloomEffect();
+                
+                // 模型加载完成后，确保应用阴影模糊滑块的值
+                setTimeout(() => {
+                    const shadowBlurSlider = document.getElementById('shadow-blur-slider');
+                    if (shadowBlurSlider && mainLight) {
+                        const initialBlur = parseFloat(shadowBlurSlider.value);
+                        // 始终应用阴影模糊值，永远不为零
+                        mainLight.shadow.radius = Math.max(0.1, initialBlur);
+                        // 确保软阴影类型正确
+                        renderer.shadowMap.type = THREE.VSMShadowMap;
+                        // 强制更新阴影贴图
+                        if (mainLight.shadow.map) {
+                            mainLight.shadow.map.dispose();
+                            mainLight.shadow.map = null;
+                        }
+                        mainLight.shadow.needsUpdate = true;
+                    }
+                }, 200);
+                
+                // 播放音乐
+                playBackgroundMusic();
+                
+                // 延迟开始模型旋转，让模型完全加载并渲染
+                setTimeout(() => {
+                    isModelRotating = true;
+                }, 500);
+                
+                // 延迟开始自动演示，让用户有时间观察模型
+                setTimeout(() => {
+                    startAutoDemo();
+                }, 3000);
+                
+                // 重置标志
+                isModelLoading = false;
+            },
+            function(xhr) {
+                // 解析进度
+                const progress = 95 + (xhr.loaded / xhr.total) * 5;
+                setLoadingProgress(progress, '正在解析模型...');
+            },
+            function(error) {
+                console.error('Error loading model:', error);
+                document.getElementById('loading').innerHTML = `
+                    <div style="color: #ff6b6b; text-align: center;">
+                        <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 10px;"></i>
+                        <p>模型加载失败</p>
+                        <p style="font-size: 0.8rem; margin-top: 10px;">请确保模型文件位于models目录中</p>
+                        <button onclick="window.loadModel('models/default_model.glb')" style="margin-top: 15px; padding: 8px 15px; background: #4dabf7; border: none; border-radius: 5px; color: white; cursor: pointer;">重新加载</button>
+                    </div>
+                `;
+                
+                document.getElementById('model-status').style.backgroundColor = '#f59e0b';
+                document.getElementById('model-status-text').textContent = '模型加载失败';
+                
+                // 重置标志
+                isModelLoading = false;
+            }
+        );
     }
     
     // 检测本地models文件夹中的模型文件
