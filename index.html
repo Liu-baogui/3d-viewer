@@ -1432,7 +1432,9 @@ let bloomEnabled = true;
     function initModelWorker() {
         if (!modelWorker) {
             try {
-                modelWorker = new Worker('model-loader.worker.js');
+                // 创建Web Worker，使用相对路径
+                modelWorker = new Worker('./model-loader.worker.js');
+                
                 modelWorker.onmessage = function(e) {
                     const { type, progress, status, modelPath, modelData, error } = e.data;
                     
@@ -1451,6 +1453,7 @@ let bloomEnabled = true;
                             break;
                         case 'error':
                             console.error('Worker loading error:', error);
+                            // 回退到主线程加载
                             loadModelActual(modelPath);
                             break;
                         default:
@@ -1461,6 +1464,7 @@ let bloomEnabled = true;
                 modelWorker.onerror = function(error) {
                     console.error('Worker error:', error);
                     // 回退到主线程加载
+                    isWorkerInitialized = false;
                 };
                 
                 isWorkerInitialized = true;
@@ -1706,9 +1710,6 @@ let bloomEnabled = true;
     
     // 加载模型函数（支持 .glb、.glb.gz 及 Draco 压缩网格）
     function loadModel(modelPath = 'models/default_model.glb') {
-        // 初始化 Web Worker
-        initModelWorker();
-        
         // 显示加载界面
         const loadingEl = document.getElementById('loading');
         loadingEl.style.display = 'flex';
@@ -1722,36 +1723,45 @@ let bloomEnabled = true;
         `;
         setLoadingProgress(0, '正在准备加载...');
         
-        // 使用 Web Worker 加载模型
-        if (isWorkerInitialized && modelWorker) {
-            // 重新设置 worker 的 onmessage 处理函数，确保 modelPath 正确传递
-            modelWorker.onmessage = function(e) {
-                const { type, progress, status, modelPath: workerModelPath, modelData, error } = e.data;
-                
-                switch (type) {
-                    case 'progress':
-                        setLoadingProgress(progress, status);
-                        break;
-                    case 'complete':
-                        if (modelData) {
-                            // 使用Web Worker返回的模型数据
-                            loadModelFromWorker(modelData);
-                        } else if (workerModelPath) {
-                            // 模型加载完成，开始实际的模型处理
-                            loadModelActual(workerModelPath);
-                        }
-                        break;
-                    case 'error':
-                        console.error('Worker loading error:', error);
-                        loadModelActual(modelPath);
-                        break;
-                    default:
-                        break;
-                }
-            };
+        // 尝试初始化 Web Worker
+        try {
+            initModelWorker();
             
-            modelWorker.postMessage({ action: 'loadModel', modelPath: modelPath });
-        } else {
+            // 使用 Web Worker 加载模型
+            if (isWorkerInitialized && modelWorker) {
+                // 重新设置 worker 的 onmessage 处理函数，确保 modelPath 正确传递
+                modelWorker.onmessage = function(e) {
+                    const { type, progress, status, modelPath: workerModelPath, modelData, error } = e.data;
+                    
+                    switch (type) {
+                        case 'progress':
+                            setLoadingProgress(progress, status);
+                            break;
+                        case 'complete':
+                            if (modelData) {
+                                // 使用Web Worker返回的模型数据
+                                loadModelFromWorker(modelData);
+                            } else if (workerModelPath) {
+                                // 模型加载完成，开始实际的模型处理
+                                loadModelActual(workerModelPath);
+                            }
+                            break;
+                        case 'error':
+                            console.error('Worker loading error:', error);
+                            loadModelActual(modelPath);
+                            break;
+                        default:
+                            break;
+                    }
+                };
+                
+                modelWorker.postMessage({ action: 'loadModel', modelPath: modelPath });
+            } else {
+                // 回退到主线程加载
+                loadModelActual(modelPath);
+            }
+        } catch (error) {
+            console.error('Error with Web Worker:', error);
             // 回退到主线程加载
             loadModelActual(modelPath);
         }

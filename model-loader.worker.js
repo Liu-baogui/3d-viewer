@@ -1,7 +1,7 @@
 // 模型加载 Web Worker
 
-// 注意：Web Worker中不能直接使用ES模块语法
-// 我们需要使用不同的方式来处理模型加载
+// 注意：Web Worker中不能使用ES模块语法，也不能直接加载Three.js
+// 我们使用模拟加载过程来提供更好的用户体验
 
 self.onmessage = function(e) {
     const { action, modelPath } = e.data;
@@ -17,7 +17,7 @@ self.onmessage = function(e) {
 
 function loadModel(modelPath) {
     try {
-        // 模拟模型加载过程，因为Web Worker中无法直接加载Three.js
+        // 模拟模型加载过程
         let progress = 0;
         const totalSteps = 100;
         
