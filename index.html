@@ -1418,8 +1418,9 @@ let bloomEnabled = true;
         const el = document.getElementById('loading-progress');
         const percentEl = document.getElementById('loading-percent');
         const textEl = document.getElementById('loading-text');
-        if (el) el.style.width = Math.min(100, Math.max(0, percent)) + '%';
-        if (percentEl) percentEl.textContent = Math.round(percent) + '%';
+        const clampedPercent = Math.min(100, Math.max(0, percent));
+        if (el) el.style.width = clampedPercent + '%';
+        if (percentEl) percentEl.textContent = Math.round(clampedPercent) + '%';
         if (textEl && text) textEl.textContent = text;
     }
     
