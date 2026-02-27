@@ -1305,6 +1305,10 @@
     let envMap = null;
     let omniLights = [];
     
+    // Web Worker 相关
+    let modelWorker = null;
+    let isWorkerInitialized = false;
+    
     // 灯光参数
     let mainLightIntensity = 1.5;
     let leftLightIntensity = 0.6;
@@ -1424,77 +1428,96 @@ let bloomEnabled = true;
         if (textEl && text) textEl.textContent = text;
     }
     
-    // 加载模型函数（支持 .glb、.glb.gz 及 Draco 压缩网格）
-    function loadModel(modelPath = 'models/default_model.glb') {
-        console.log('=============================================');
-        console.log('=== 开始加载模型:', modelPath, '===');
-        console.log('=============================================');
-        
+    // 初始化 Web Worker
+    function initModelWorker() {
+        if (!modelWorker) {
+            try {
+                modelWorker = new Worker('model-loader.worker.js');
+                modelWorker.onmessage = function(e) {
+                    const { type, progress, status, modelPath, processed } = e.data;
+                    
+                    switch (type) {
+                        case 'progress':
+                            setLoadingProgress(progress, status);
+                            break;
+                        case 'complete':
+                            if (modelPath) {
+                                // 模型加载完成，开始实际的模型处理
+                                loadModelActual(modelPath);
+                            } else if (processed) {
+                                // 模型处理完成
+                                console.log('模型处理完成');
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                };
+                
+                modelWorker.onerror = function(error) {
+            console.error('Worker error:', error);
+            // 回退到主线程加载
+            // 注意：这里无法直接获取 modelPath，需要在调用时处理
+        };
+                
+                isWorkerInitialized = true;
+            } catch (error) {
+                console.error('Failed to create worker:', error);
+                isWorkerInitialized = false;
+            }
+        }
+    }
+
+    // 实际的模型加载函数
+    function loadModelActual(modelPath = 'models/default_model.glb') {
         // 防止重复加载
         if (isModelLoading) {
-            console.log('模型正在加载中，请等待完成...');
             return;
         }
         
         isModelLoading = true;
-        console.log('设置isModelLoading为true');
         
         // 停止之前的自动演示和模型旋转
         isAutoPlaying = false;
         isModelRotating = false;
-        console.log('停止自动演示和模型旋转');
         
         // 1. 清空场景，只保留必要对象
-        console.log('1. 开始清空场景...');
         const objectsToKeep = [];
         
         scene.traverse((child) => {
             if (child.isLight) {
                 objectsToKeep.push(child);
-                console.log('保留灯光:', child.type);
             }
             if (child.userData && child.userData.isShadowCatcher) {
                 objectsToKeep.push(child);
-                console.log('保留阴影接收器');
             }
         });
         
         // 清空场景
-        console.log('清空场景...');
         while (scene.children.length > 0) {
-            const child = scene.children[0];
-            console.log('移除:', child.name || '(未命名)', child.type);
-            scene.remove(child);
+            scene.remove(scene.children[0]);
         }
         
         // 添加回保留的对象
-        console.log('添加回保留的对象...');
         objectsToKeep.forEach(obj => {
             scene.add(obj);
         });
         
-        console.log('场景清空完成，剩余对象数量:', scene.children.length);
-        
         // 2. 重置所有引用和数组
-        console.log('2. 重置所有引用和数组...');
         model = null;
         materialGroups = { metal: [], paint: [], screen: [], door: [], drawer: [] };
         ddMaterialMeshes = [];
         cabinetDoors = [];
         drawers = [];
         slidingDoors = [];
-        console.log('所有引用和数组已重置');
         
         // 3. 准备加载器
-        console.log('3. 准备加载器...');
         const loader = new GLTFLoader();
         loader.setDRACOLoader(getDracoLoader());
         loader.setMeshoptDecoder(MeshoptDecoder);
         const isCompressed = /\.gz$/i.test(modelPath);
-        console.log('加载器准备完成，压缩格式:', isCompressed);
         
         // 4. 显示加载界面
-        console.log('4. 显示加载界面...');
         const loadingEl = document.getElementById('loading');
         loadingEl.style.display = 'flex';
         loadingEl.innerHTML = `
@@ -1509,12 +1532,7 @@ let bloomEnabled = true;
         
         // 5. 定义加载完成回调
         function onModelLoaded(gltf) {
-            console.log('=============================================');
-            console.log('=== 模型加载完成，开始处理新模型 ===');
-            console.log('=============================================');
-            
             // 再次清空场景，确保没有任何残留
-            console.log('再次清空场景...');
             const objectsToKeepFinal = [];
             scene.traverse((child) => {
                 if (child.isLight || (child.userData && child.userData.isShadowCatcher)) {
@@ -1527,37 +1545,18 @@ let bloomEnabled = true;
             }
             
             objectsToKeepFinal.forEach(obj => scene.add(obj));
-            console.log('场景清空完成，准备添加新模型');
             
             // 添加新模型
-            console.log('添加新模型到场景...');
             model = gltf.scene;
             scene.add(model);
-            console.log('新模型已添加到场景');
             
             // 处理模型
-            console.log('开始处理模型...');
             model.userData.initialRotation = model.rotation.clone();
             
-            // 遍历模型对象
-            let objectList = [];
-            model.traverse((child) => {
-                objectList.push({
-                    name: child.name || '(未命名)',
-                    type: child.isGroup ? 'Group' : (child.isMesh ? 'Mesh' : 'Object3D')
-                });
-            });
-            console.log('模型包含', objectList.length, '个对象');
-            console.table(objectList);
-            
             // 处理材质和识别部件
-            console.log('处理模型材质...');
-            processModelMaterials(model);
-            console.log('识别柜门、抽屉和推拉门...');
-            identifyDoorsAndDrawers(model);
+            processModel(model);
             
             // 缩放和定位模型
-            console.log('缩放和定位模型...');
             const box = new THREE.Box3().setFromObject(model);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
@@ -1570,7 +1569,6 @@ let bloomEnabled = true;
             }
             
             // 更新UI
-            console.log('更新UI...');
             const selectedModel = modelList.find(m => m.path === modelPath);
             if (selectedModel) {
                 document.getElementById('model-name').textContent = selectedModel.name;
@@ -1582,7 +1580,6 @@ let bloomEnabled = true;
             document.getElementById('loading').style.display = 'none';
             
             // 更新材质和效果
-            console.log('更新材质和效果...');
             updateMetalMaterials();
             updatePaintMaterials();
             setTimeout(() => updateShadowPosition(), 100);
@@ -1604,40 +1601,28 @@ let bloomEnabled = true;
                         mainLight.shadow.map = null;
                     }
                     mainLight.shadow.needsUpdate = true;
-                    console.log('模型加载后应用阴影模糊值:', initialBlur);
                 }
             }, 200);
             
             // 播放音乐
-            console.log('播放背景音乐...');
             playBackgroundMusic();
             
-            // 立即开始模型旋转，不等自动演示
-            console.log('模型开始自旋转...');
-            isModelRotating = true;
+            // 延迟开始模型旋转，让模型完全加载并渲染
+            setTimeout(() => {
+                isModelRotating = true;
+            }, 500);
             
-            // 1秒后开始自动演示
-            console.log('1秒后开始自动演示...');
+            // 延迟开始自动演示，让用户有时间观察模型
             setTimeout(() => {
                 startAutoDemo();
-            }, 1000);
-            
-            // 完成加载
-            console.log('=============================================');
-            console.log('=== 模型加载完成:', modelPath, '===');
-            console.log('=============================================');
+            }, 3000);
             
             // 重置标志
             isModelLoading = false;
-            console.log('设置isModelLoading为false');
         }
         
         // 6. 定义加载错误回调
         function onModelError(error) {
-            console.error('=============================================');
-            console.error('=== 模型加载失败:', error, '===');
-            console.error('=============================================');
-            
             document.getElementById('loading').innerHTML = `
                 <div style="color: #ff6b6b; text-align: center;">
                     <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 10px;"></i>
@@ -1652,13 +1637,10 @@ let bloomEnabled = true;
             
             // 重置标志
             isModelLoading = false;
-            console.log('设置isModelLoading为false');
         }
         
         // 7. 开始加载模型
-        console.log('7. 开始加载模型...');
         if (isCompressed) {
-            console.log('加载压缩模型...');
             const xhr = new XMLHttpRequest();
             xhr.open('GET', modelPath);
             xhr.responseType = 'arraybuffer';
@@ -1692,14 +1674,12 @@ let bloomEnabled = true;
                     setLoadingProgress(98, '解析模型...');
                     loader.parse(glbBuffer, '', onModelLoaded, onModelError);
                 } catch (err) {
-                    console.error('解压失败:', err);
                     onModelError(err);
                 }
             };
             xhr.onerror = function() { onModelError(new Error('网络错误')); };
             xhr.send();
         } else {
-            console.log('加载普通模型...');
             loader.load(
                 modelPath,
                 onModelLoaded,
@@ -1711,6 +1691,55 @@ let bloomEnabled = true;
                 },
                 onModelError
             );
+        }
+    }
+    
+    // 加载模型函数（支持 .glb、.glb.gz 及 Draco 压缩网格）
+    function loadModel(modelPath = 'models/default_model.glb') {
+        // 初始化 Web Worker
+        initModelWorker();
+        
+        // 显示加载界面
+        const loadingEl = document.getElementById('loading');
+        loadingEl.style.display = 'flex';
+        loadingEl.innerHTML = `
+            <div class="spinner"></div>
+            <p id="loading-text">正在加载模型...</p>
+            <div class="progress-bar-wrap" style="width: 200px; height: 8px; background: rgba(77,171,247,0.2); border-radius: 4px; overflow: hidden;">
+                <div id="loading-progress" style="height: 100%; width: 0%; background: linear-gradient(90deg, #4dabf7, #748ffc); border-radius: 4px; transition: width 0.2s;"></div>
+            </div>
+            <p id="loading-percent" style="font-size: 0.9rem; color: #8a9bb8;">0%</p>
+        `;
+        setLoadingProgress(0, '正在准备加载...');
+        
+        // 使用 Web Worker 加载模型
+        if (isWorkerInitialized && modelWorker) {
+            // 重新设置 worker 的 onmessage 处理函数，确保 modelPath 正确传递
+            modelWorker.onmessage = function(e) {
+                const { type, progress, status, modelPath: workerModelPath, processed } = e.data;
+                
+                switch (type) {
+                    case 'progress':
+                        setLoadingProgress(progress, status);
+                        break;
+                    case 'complete':
+                        if (workerModelPath) {
+                            // 模型加载完成，开始实际的模型处理
+                            loadModelActual(workerModelPath);
+                        } else if (processed) {
+                            // 模型处理完成
+                            console.log('模型处理完成');
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            };
+            
+            modelWorker.postMessage({ action: 'loadModel', modelPath: modelPath });
+        } else {
+            // 回退到主线程加载
+            loadModelActual(modelPath);
         }
     }
     
@@ -1841,260 +1870,7 @@ let bloomEnabled = true;
     }
     
     // 专门识别柜门、抽屉和推拉门（函数）
-    function identifyDoorsAndDrawers(object) {
-        console.log('=== 开始识别柜门、抽屉和推拉门 ===');
-        let doorCount = 0;
-        let drawerCount = 0;
-        let slidingDoorCount = 0;
-        
-        // 辅助函数：检查是否是柜门（支持多种拼写变体）
-        function isCabinetDoor(name) {
-            return name.includes('cabinetdoor') || 
-                   name.includes('cabinnetdoor') || 
-                   name.includes('cabinet door') ||
-                   (name.includes('door') && name.includes('cabinet'));
-        }
-        
-        // 辅助函数：检查是否是推拉门（包含door但不是柜门）
-        function isSlidingDoor(name) {
-            return name.includes('door') && !isCabinetDoor(name);
-        }
-        
-        // 首先查找Group对象
-        object.traverse((child) => {
-            const childName = child.name ? child.name.toLowerCase() : '';
-            const originalName = child.name || '(未命名)';
-            
-            // 识别柜门Group（先检查是否是父级Group）
-            if (isCabinetDoor(childName) && (child.isGroup || child.isObject3D)) {
-                // 检查这个Group的子对象中是否也包含柜门
-                let hasChildDoors = false;
-                child.traverse((grandChild) => {
-                    if (grandChild !== child) {
-                        const grandChildName = grandChild.name ? grandChild.name.toLowerCase() : '';
-                        if (isCabinetDoor(grandChildName)) {
-                            hasChildDoors = true;
-                        }
-                    }
-                });
-                
-                // 如果有子柜门，说明这是父级Group，跳过它
-                if (hasChildDoors) {
-                    console.log(`跳过父级柜门组: ${originalName}（包含子柜门）`);
-                    return;
-                }
-                
-                console.log(`发现柜门组: ${originalName}`);
-                doorCount++;
-                
-                // 添加用户数据到Group - 保存完整的初始旋转
-                child.userData = {
-                    type: 'cabinetDoor',
-                    initialRotation: child.rotation.clone(),
-                    open: false
-                };
-                
-                // 将Group添加到柜门数组
-                cabinetDoors.push(child);
-                
-                // 遍历子网格，设置用户数据以便点击检测
-                child.traverse((meshChild) => {
-                    if (meshChild.isMesh) {
-                        // 保存父组引用
-                        meshChild.userData = meshChild.userData || {};
-                        meshChild.userData.parentGroup = child;
-                        meshChild.userData.type = 'cabinetDoor';
-                        
-                        // 关键修复：保留网格的烘焙贴图材质
-                        preserveBakedMaterial(meshChild, 'cabinetDoor');
-                        
-                        // 添加到材质组（用于点击检测）
-                        materialGroups.door.push(meshChild);
-                    }
-                });
-                
-                console.log(`柜门组 ${originalName} 已设置`);
-            }
-            
-            // 识别抽屉Group（局部坐标：Z 轴向上，Y 轴正向朝向相机，抽屉沿局部 Y 轴移动 -200）
-            if (childName.includes('drawer') && (child.isGroup || child.isObject3D)) {
-                console.log(`发现抽屉组: ${child.name}`);
-                drawerCount++;
-                
-                // 添加用户数据到Group，moveAxis 为局部 Y 轴 (0,1,0)
-                child.userData = {
-                    type: 'drawer',
-                    initialPosition: child.position.clone(),
-                    open: false,
-                    moveAxis: new THREE.Vector3(0, 1, 0)
-                };
-                
-                // 将Group添加到抽屉数组
-                drawers.push(child);
-                
-                // 遍历子网格，设置用户数据以便点击检测
-                child.traverse((meshChild) => {
-                    if (meshChild.isMesh) {
-                        // 保存父组引用
-                        meshChild.userData = meshChild.userData || {};
-                        meshChild.userData.parentGroup = child;
-                        meshChild.userData.type = 'drawer';
-                        
-                        // 关键修复：保留网格的烘焙贴图材质
-                        preserveBakedMaterial(meshChild, 'drawer');
-                        
-                        // 添加到材质组（用于点击检测）
-                        materialGroups.drawer.push(meshChild);
-                    }
-                });
-                
-                console.log(`抽屉组 ${child.name} 已设置`);
-            }
-            
-            // 识别推拉门Group（包含door但不是柜门的名称）
-            if (isSlidingDoor(childName) && (child.isGroup || child.isObject3D)) {
-                console.log(`发现推拉门组: ${child.name}`);
-                slidingDoorCount++;
-                
-                // 判断是左门还是右门，确定移动方向
-                const isLeftDoor = childName.includes('left');
-                const moveDirection = isLeftDoor ? 1 : -1;
-                console.log(`推拉门 ${child.name} 是 ${isLeftDoor ? '左门' : '右门'}，移动方向: ${moveDirection}`);
-                
-                // 添加用户数据到Group，moveAxis 为局部 X 轴 (1,0,0)
-                child.userData = {
-                    type: 'slidingDoor',
-                    initialPosition: child.position.clone(),
-                    open: false,
-                    moveAxis: new THREE.Vector3(1, 0, 0),
-                    moveDistance: 450,
-                    moveDirection: moveDirection
-                };
-                
-                // 将推拉门添加到数组中
-                slidingDoors.push(child);
-                
-                // 遍历子网格，设置用户数据以便点击检测
-                child.traverse((meshChild) => {
-                    if (meshChild.isMesh) {
-                        // 保存父组引用
-                        meshChild.userData = meshChild.userData || {};
-                        meshChild.userData.parentGroup = child;
-                        meshChild.userData.type = 'slidingDoor';
-                        
-                        // 关键修复：保留网格的烘焙贴图材质
-                        preserveBakedMaterial(meshChild, 'slidingDoor');
-                        
-                        // 添加到材质组（用于点击检测）
-                        if (!materialGroups.slidingDoor) {
-                            materialGroups.slidingDoor = [];
-                        }
-                        materialGroups.slidingDoor.push(meshChild);
-                    }
-                });
-                
-                console.log(`推拉门组 ${child.name} 已设置`);
-            }
-        });
-        
-        // 其次，检查是否有独立的Mesh（向后兼容）
-        object.traverse((child) => {
-            if (child.isMesh) {
-                const meshName = child.name ? child.name.toLowerCase() : '';
-                const originalName = child.name || '(未命名)';
-                
-                // 如果这个Mesh已经通过父组处理过，跳过
-                if (child.userData && child.userData.parentGroup) {
-                    return;
-                }
-                
 
-                
-                // 识别独立的柜门Mesh
-                if (isCabinetDoor(meshName)) {
-                    console.log(`发现独立柜门Mesh: ${originalName}`);
-                    doorCount++;
-                    
-                    // 添加到柜门数组
-                    cabinetDoors.push(child);
-                    
-                    // 关键修复：保留网格的烘焙贴图材质
-                    preserveBakedMaterial(child, 'cabinetDoor');
-                    
-                    // 设置用户数据 - 保存完整的初始旋转
-                    child.userData = {
-                        type: 'cabinetDoor',
-                        initialRotation: child.rotation.clone(),
-                        open: false
-                    };
-                    
-                    // 添加到材质组
-                    materialGroups.door.push(child);
-                    
-                    console.log(`独立柜门Mesh ${originalName} 已设置`);
-                }
-                
-                // 识别独立的抽屉Mesh（沿局部 Y 轴移动）
-                if (meshName.includes('drawer')) {
-                    console.log(`发现独立抽屉Mesh: ${child.name}`);
-                    drawerCount++;
-                    
-                    // 关键修复：保留网格的烘焙贴图材质
-                    preserveBakedMaterial(child, 'drawer');
-                    
-                    // 设置用户数据（先确保 userData 存在），moveAxis 为局部 Y 轴 (0,1,0)
-                    child.userData = child.userData || {};
-                    child.userData.type = 'drawer';
-                    child.userData.initialPosition = child.position.clone();
-                    child.userData.open = false;
-                    child.userData.moveAxis = new THREE.Vector3(0, 1, 0);
-
-                    
-                    // 添加到材质组
-                    materialGroups.drawer.push(child);
-                    
-                    console.log(`独立抽屉Mesh ${child.name} 已设置`);
-                }
-                
-                // 识别独立的推拉门Mesh（包含door但不是柜门的名称）
-                if (isSlidingDoor(meshName)) {
-                    console.log(`发现独立推拉门Mesh: ${child.name}`);
-                    slidingDoorCount++;
-                    
-                    // 判断是左门还是右门，确定移动方向
-                    const isLeftDoor = meshName.includes('left');
-                    const moveDirection = isLeftDoor ? 1 : -1;
-                    console.log(`推拉门 ${child.name} 是 ${isLeftDoor ? '左门' : '右门'}，移动方向: ${moveDirection}`);
-                    
-                    // 设置用户数据
-                    child.userData = {
-                        type: 'slidingDoor',
-                        initialPosition: child.position.clone(),
-                        open: false,
-                        moveAxis: new THREE.Vector3(1, 0, 0),
-                        moveDistance: 450,
-                        moveDirection: moveDirection
-                    };
-                    
-                    // 将推拉门添加到数组中
-                    slidingDoors.push(child);
-                    
-                    // 关键修复：保留网格的烘焙贴图材质
-                    preserveBakedMaterial(child, 'slidingDoor');
-                    
-                    // 添加到材质组
-                    if (!materialGroups.slidingDoor) {
-                        materialGroups.slidingDoor = [];
-                    }
-                    materialGroups.slidingDoor.push(child);
-                    
-                    console.log(`独立推拉门Mesh ${child.name} 已设置`);
-                }
-            }
-        });
-        
-        console.log(`识别完成: 找到 ${doorCount} 个柜门, ${drawerCount} 个抽屉, ${slidingDoorCount} 个推拉门`);
-    }
     
     // 关键函数：保留烘焙贴图材质
     function preserveBakedMaterial(mesh, type) {
@@ -2112,8 +1888,6 @@ let bloomEnabled = true;
         
         // 对屏幕保留烘焙贴图
         if (type === 'screen' && hasTexture) {
-            console.log(`${type} 有烘焙贴图，保留原始材质: ${mesh.name}`);
-            
             // 保存原始材质
             mesh.userData.originalMaterial = originalMaterial.clone();
             mesh.userData.hasBakedTexture = true;
@@ -2123,8 +1897,6 @@ let bloomEnabled = true;
         } 
         // 对有纹理的门，保留原始纹理
         else if ((type === 'cabinetDoor' || type === 'slidingDoor') && hasTexture) {
-            console.log(`${type} 有纹理贴图，保留原始纹理: ${mesh.name}`);
-            
             // 保存原始材质
             mesh.userData.originalMaterial = originalMaterial.clone();
             mesh.userData.hasBakedTexture = true;
@@ -2153,7 +1925,6 @@ let bloomEnabled = true;
         }
         // 其他类型或无烘焙贴图，使用标准材质
         else {
-            console.log(`${type} 使用标准材质: ${mesh.name}`);
             if (type === 'cabinetDoor') {
                 applyCabinetDoorMaterial(mesh);
             } else if (type === 'drawer') {
@@ -2197,73 +1968,286 @@ let bloomEnabled = true;
             // 确保网格启用阴影
             mesh.castShadow = true;
             mesh.receiveShadow = true;
-            
-            console.log(`${type} 烘焙材质已增强: ${mesh.name}`);
         } catch (error) {
-            console.error(`创建${type}增强材质失败:`, error);
             // 回退到原始材质
             mesh.material = mesh.userData.originalMaterial;
         }
     }
     
-    // 处理模型材质
-    function processModelMaterials(object) {
-        console.log('=== 开始处理模型材质 ===');
+    // 合并处理模型材质和识别部件
+    function processModel(object) {
+        let doorCount = 0;
+        let drawerCount = 0;
+        let slidingDoorCount = 0;
         let processedCount = 0;
-
+        
+        // 辅助函数：检查是否是柜门（支持多种拼写变体）
+        function isCabinetDoor(name) {
+            return name.includes('cabinetdoor') || 
+                   name.includes('cabinnetdoor') || 
+                   name.includes('cabinet door') ||
+                   (name.includes('door') && name.includes('cabinet'));
+        }
+        
+        // 辅助函数：检查是否是推拉门（包含door但不是柜门）
+        function isSlidingDoor(name) {
+            return name.includes('door') && !isCabinetDoor(name);
+        }
+        
+        // 首次遍历：处理Group对象
+        object.traverse((child) => {
+            const childName = child.name ? child.name.toLowerCase() : '';
+            const originalName = child.name || '(未命名)';
+            
+            // 识别柜门Group（先检查是否是父级Group）
+            if (isCabinetDoor(childName) && (child.isGroup || child.isObject3D)) {
+                // 检查这个Group的子对象中是否也包含柜门
+                let hasChildDoors = false;
+                child.traverse((grandChild) => {
+                    if (grandChild !== child) {
+                        const grandChildName = grandChild.name ? grandChild.name.toLowerCase() : '';
+                        if (isCabinetDoor(grandChildName)) {
+                            hasChildDoors = true;
+                        }
+                    }
+                });
+                
+                // 如果有子柜门，说明这是父级Group，跳过它
+                if (hasChildDoors) {
+                    return;
+                }
+                
+                doorCount++;
+                
+                // 添加用户数据到Group - 保存完整的初始旋转
+                child.userData = {
+                    type: 'cabinetDoor',
+                    initialRotation: child.rotation.clone(),
+                    open: false
+                };
+                
+                // 将Group添加到柜门数组
+                cabinetDoors.push(child);
+                
+                // 遍历子网格，设置用户数据以便点击检测
+                child.traverse((meshChild) => {
+                    if (meshChild.isMesh) {
+                        // 保存父组引用
+                        meshChild.userData = meshChild.userData || {};
+                        meshChild.userData.parentGroup = child;
+                        meshChild.userData.type = 'cabinetDoor';
+                        
+                        // 关键修复：保留网格的烘焙贴图材质
+                        preserveBakedMaterial(meshChild, 'cabinetDoor');
+                        
+                        // 添加到材质组（用于点击检测）
+                        materialGroups.door.push(meshChild);
+                        processedCount++;
+                    }
+                });
+            }
+            
+            // 识别抽屉Group（局部坐标：Z 轴向上，Y 轴正向朝向相机，抽屉沿局部 Y 轴移动 -200）
+            else if (childName.includes('drawer') && (child.isGroup || child.isObject3D)) {
+                drawerCount++;
+                
+                // 添加用户数据到Group，moveAxis 为局部 Y 轴 (0,1,0)
+                child.userData = {
+                    type: 'drawer',
+                    initialPosition: child.position.clone(),
+                    open: false,
+                    moveAxis: new THREE.Vector3(0, 1, 0)
+                };
+                
+                // 将Group添加到抽屉数组
+                drawers.push(child);
+                
+                // 遍历子网格，设置用户数据以便点击检测
+                child.traverse((meshChild) => {
+                    if (meshChild.isMesh) {
+                        // 保存父组引用
+                        meshChild.userData = meshChild.userData || {};
+                        meshChild.userData.parentGroup = child;
+                        meshChild.userData.type = 'drawer';
+                        
+                        // 关键修复：保留网格的烘焙贴图材质
+                        preserveBakedMaterial(meshChild, 'drawer');
+                        
+                        // 添加到材质组（用于点击检测）
+                        materialGroups.drawer.push(meshChild);
+                        processedCount++;
+                    }
+                });
+            }
+            
+            // 识别推拉门Group（包含door但不是柜门的名称）
+            else if (isSlidingDoor(childName) && (child.isGroup || child.isObject3D)) {
+                slidingDoorCount++;
+                
+                // 判断是左门还是右门，确定移动方向
+                const isLeftDoor = childName.includes('left');
+                const moveDirection = isLeftDoor ? 1 : -1;
+                
+                // 添加用户数据到Group，moveAxis 为局部 X 轴 (1,0,0)
+                child.userData = {
+                    type: 'slidingDoor',
+                    initialPosition: child.position.clone(),
+                    open: false,
+                    moveAxis: new THREE.Vector3(1, 0, 0),
+                    moveDistance: 450,
+                    moveDirection: moveDirection
+                };
+                
+                // 将推拉门添加到数组中
+                slidingDoors.push(child);
+                
+                // 遍历子网格，设置用户数据以便点击检测
+                child.traverse((meshChild) => {
+                    if (meshChild.isMesh) {
+                        // 保存父组引用
+                        meshChild.userData = meshChild.userData || {};
+                        meshChild.userData.parentGroup = child;
+                        meshChild.userData.type = 'slidingDoor';
+                        
+                        // 关键修复：保留网格的烘焙贴图材质
+                        preserveBakedMaterial(meshChild, 'slidingDoor');
+                        
+                        // 添加到材质组（用于点击检测）
+                        if (!materialGroups.slidingDoor) {
+                            materialGroups.slidingDoor = [];
+                        }
+                        materialGroups.slidingDoor.push(meshChild);
+                        processedCount++;
+                    }
+                });
+            }
+        });
+        
+        // 二次遍历：处理独立的Mesh和其他材质
         object.traverse((child) => {
             if (child.isMesh) {
                 const meshName = child.name ? child.name.toLowerCase() : '';
                 const originalName = child.name || '(未命名)';
                 
-                // 跳过已经处理的柜门、抽屉和推拉门
-                if (child.userData && (child.userData.type === 'cabinetDoor' || child.userData.type === 'drawer' || child.userData.type === 'slidingDoor')) {
+                // 如果这个Mesh已经通过父组处理过，跳过
+                if (child.userData && child.userData.parentGroup) {
                     return;
                 }
                 
+                // 识别独立的柜门Mesh
+                if (isCabinetDoor(meshName)) {
+                    doorCount++;
+                    
+                    // 添加到柜门数组
+                    cabinetDoors.push(child);
+                    
+                    // 关键修复：保留网格的烘焙贴图材质
+                    preserveBakedMaterial(child, 'cabinetDoor');
+                    
+                    // 设置用户数据 - 保存完整的初始旋转
+                    child.userData = {
+                        type: 'cabinetDoor',
+                        initialRotation: child.rotation.clone(),
+                        open: false
+                    };
+                    
+                    // 添加到材质组
+                    materialGroups.door.push(child);
+                    processedCount++;
+                }
+                
+                // 识别独立的抽屉Mesh（沿局部 Y 轴移动）
+                else if (meshName.includes('drawer')) {
+                    drawerCount++;
+                    
+                    // 关键修复：保留网格的烘焙贴图材质
+                    preserveBakedMaterial(child, 'drawer');
+                    
+                    // 设置用户数据（先确保 userData 存在），moveAxis 为局部 Y 轴 (0,1,0)
+                    child.userData = child.userData || {};
+                    child.userData.type = 'drawer';
+                    child.userData.initialPosition = child.position.clone();
+                    child.userData.open = false;
+                    child.userData.moveAxis = new THREE.Vector3(0, 1, 0);
+                    
+                    // 添加到材质组
+                    materialGroups.drawer.push(child);
+                    processedCount++;
+                }
+                
+                // 识别独立的推拉门Mesh（包含door但不是柜门的名称）
+                else if (isSlidingDoor(meshName)) {
+                    slidingDoorCount++;
+                    
+                    // 判断是左门还是右门，确定移动方向
+                    const isLeftDoor = meshName.includes('left');
+                    const moveDirection = isLeftDoor ? 1 : -1;
+                    
+                    // 设置用户数据
+                    child.userData = {
+                        type: 'slidingDoor',
+                        initialPosition: child.position.clone(),
+                        open: false,
+                        moveAxis: new THREE.Vector3(1, 0, 0),
+                        moveDistance: 450,
+                        moveDirection: moveDirection
+                    };
+                    
+                    // 将推拉门添加到数组中
+                    slidingDoors.push(child);
+                    
+                    // 关键修复：保留网格的烘焙贴图材质
+                    preserveBakedMaterial(child, 'slidingDoor');
+                    
+                    // 添加到材质组
+                    if (!materialGroups.slidingDoor) {
+                        materialGroups.slidingDoor = [];
+                    }
+                    materialGroups.slidingDoor.push(child);
+                    processedCount++;
+                }
+                
                 // 检测特殊材质 "dd"（灵活匹配）
-                // 所有包含dd的物体都作为特殊材质处理，包括包含emit的物体
-                if (originalName.toLowerCase().includes('dd')) {
-                    console.log('发现特殊材质 "dd":', child.name, '原始名称:', originalName);
+                else if (originalName.toLowerCase().includes('dd')) {
                     // 添加到数组中
                     ddMaterialMeshes.push(child);
                     // 保存原始材质
                     child.userData = child.userData || {};
                     child.userData.originalMaterial = child.material.clone();
-                    console.log('保存dd的原始材质:', child.material);
-                    console.log('dd材质的自发光强度:', child.material.emissiveIntensity);
-                    console.log('dd材质的自发光颜色:', child.material.emissive.getHexString());
-                    console.log('dd材质的颜色:', child.material.color.getHexString());
-                    console.log('当前dd物体数量:', ddMaterialMeshes.length);
                     
                     // 初始状态：改为暗蓝色半透明材质，确保辉光效果消失
-                    console.log('dd物体初始化：改为暗蓝色半透明材质');
-                    child.material = new THREE.MeshStandardMaterial({
+                    const darkBlueMaterial = new THREE.MeshStandardMaterial({
                         color: 0x1a2a3a, // 暗蓝色
                         metalness: 0.1,
-                        roughness: 0.9, // 增加粗糙度
-                        emissive: 0x000000,
-                        emissiveIntensity: 0,
+                        roughness: 0.8,
                         transparent: true,
-                        opacity: 0.9 // 增加不透明度
+                        opacity: 0.7,
+                        emissive: 0x0a1a2a,
+                        emissiveIntensity: 0.1,
+                        side: THREE.DoubleSide
                     });
-                    child.material.needsUpdate = true;
-                    return;
+                    
+                    darkBlueMaterial.envMap = envMap;
+                    darkBlueMaterial.needsUpdate = true;
+                    
+                    child.material = darkBlueMaterial;
+                    
+                    processedCount++;
                 }
                 
-                // 检测是否有烘焙贴图
-                const hasBakedTexture = hasTexture(child.material);
-                
-                // 屏幕类处理
-                if (meshName.includes('screen') || meshName.includes('display') || meshName.includes('monitor')) {
-                    materialGroups.screen.push(child);
+                // 检测屏幕（包含screen的名称）
+                else if (meshName.includes('screen') || meshName.includes('display') || meshName.includes('monitor')) {
+                    // 检查是否有烘焙贴图
+                    const hasBakedTexture = hasTexture(child.material);
                     
                     if (hasBakedTexture) {
-                        console.log(`烘焙贴图屏幕: ${child.name}`);
                         createBakedScreenMaterial(child);
                     } else {
                         applyOriginalScreenMaterial(child);
                     }
+                    
+                    // 添加到材质组
+                    materialGroups.screen.push(child);
                     
                     // 确保显示器正确处理阴影
                     child.castShadow = true;
@@ -2272,74 +2256,70 @@ let bloomEnabled = true;
                     child.userData = child.userData || {};
                     child.userData.type = 'screen';
                     processedCount++;
-                    return;
                 }
                 
-                // 其他有烘焙贴图的部件
-                if (hasBakedTexture) {
-                    // 其他部件：不使用烘焙材质，使用标准材质
-                    console.log(`忽略烘焙材质，使用标准材质: ${child.name}`);
+                // 其他材质处理
+                else {
+                    // 检查是否有烘焙贴图
+                    const hasBakedTexture = hasTexture(child.material);
                     
-                    // 根据名称分类并使用标准材质
-                    if (meshName.includes('metal')) {
-                        materialGroups.metal.push(child);
-                        child.userData = { type: 'metal' };
-                        applyMetalMaterial(child);
-                    } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
-                        materialGroups.paint.push(child);
-                        child.userData = { type: 'paint' };
-                        applyPaintMaterial(child);
+                    // 其他有烘焙贴图的部件
+                    if (hasBakedTexture) {
+                        // 根据名称分类并使用标准材质
+                        if (meshName.includes('metal')) {
+                            materialGroups.metal.push(child);
+                            child.userData = { type: 'metal' };
+                            applyMetalMaterial(child);
+                        } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
+                            materialGroups.paint.push(child);
+                            child.userData = { type: 'paint' };
+                            applyPaintMaterial(child);
+                        }
+                        
+                        processedCount++;
                     }
                     
-                    processedCount++;
-                    return;
-                }
-                
-                // 原始的非烘焙贴图处理逻辑
-                if (meshName.includes('metal')) {
-                    materialGroups.metal.push(child);
-                    child.userData = { type: 'metal' };
-                    applyMetalMaterial(child);
-                    processedCount++;
-                }
-                else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
-                    materialGroups.paint.push(child);
-                    child.userData = { type: 'paint' };
-                    applyPaintMaterial(child);
-                    processedCount++;
-                }
+                    // 原始的非烘焙贴图处理逻辑
+                    else {
+                        if (meshName.includes('metal')) {
+                            materialGroups.metal.push(child);
+                            child.userData = { type: 'metal' };
+                            applyMetalMaterial(child);
+                            processedCount++;
+                        }
+                        else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
+                            materialGroups.paint.push(child);
+                            child.userData = { type: 'paint' };
+                            applyPaintMaterial(child);
+                            processedCount++;
+                        }
 
-                // 启用阴影
-                child.castShadow = true;
-                child.receiveShadow = true;
-                // 确保几何体计算正确的边界框，这对于阴影投射很重要
-                if (child.geometry) {
-                    child.geometry.computeBoundingBox();
-                    child.geometry.computeBoundingSphere();
+                        // 启用阴影
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        // 确保几何体计算正确的边界框，这对于阴影投射很重要
+                        if (child.geometry) {
+                            child.geometry.computeBoundingBox();
+                            child.geometry.computeBoundingSphere();
+                        }
+                    }
                 }
             }
         });
-
-        console.log(`材质处理完成，处理了 ${processedCount} 个网格`);
-        console.log('特殊材质 "dd" 检测结果:', ddMaterialMeshes.length > 0 ? `找到 ${ddMaterialMeshes.length} 个` : '未找到');
-        ddMaterialMeshes.forEach((mesh, index) => {
-            console.log(`dd物体 ${index + 1}:`, mesh.name);
-        });
     }
-    
+
     // 检查材质是否有贴图
     function hasTexture(material) {
         if (!material) return false;
         
-        const textureTypes = ['map', 'emissiveMap', 'roughnessMap', 'metalnessMap', 'normalMap', 'aoMap', 'lightMap'];
-        
-        for (const texType of textureTypes) {
-            if (material[texType]) {
-                return true;
-            }
-        }
-        
-        return false;
+        // 直接检查常见的贴图类型，避免数组遍历
+        return !!(material.map || 
+                 material.emissiveMap || 
+                 material.roughnessMap || 
+                 material.metalnessMap ||
+                 material.normalMap ||
+                 material.aoMap ||
+                 material.lightMap);
     }
     
     // 为烘焙贴图屏幕创建材质
@@ -2347,8 +2327,6 @@ let bloomEnabled = true;
         try {
             const originalMaterial = mesh.material;
             const originalColor = originalMaterial.color ? originalMaterial.color.clone() : new THREE.Color(0xffffff);
-            
-            console.log(`创建烘焙屏幕材质: ${mesh.name}`);
             
             // 创建关闭状态材质（基于原始材质）
             const offMaterial = originalMaterial.clone();
