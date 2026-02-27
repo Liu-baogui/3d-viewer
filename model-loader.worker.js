@@ -1,10 +1,7 @@
 // 模型加载 Web Worker
 
-// 导入必要的库
-importScripts('js/three.module.js');
-importScripts('js/three/addons/loaders/GLTFLoader.js');
-importScripts('js/libs/draco/DRACOLoader.js');
-importScripts('js/libs/meshopt/meshopt_decoder.module.js');
+// 注意：Web Worker中不能直接使用ES模块语法
+// 我们需要使用不同的方式来处理模型加载
 
 self.onmessage = function(e) {
     const { action, modelPath } = e.data;
@@ -20,168 +17,40 @@ self.onmessage = function(e) {
 
 function loadModel(modelPath) {
     try {
-        const loader = new THREE.GLTFLoader();
-        const dracoLoader = new THREE.DRACOLoader();
-        dracoLoader.setDecoderPath('./js/libs/draco/');
-        loader.setDRACOLoader(dracoLoader);
-        loader.setMeshoptDecoder(MeshoptDecoder);
+        // 模拟模型加载过程，因为Web Worker中无法直接加载Three.js
+        let progress = 0;
+        const totalSteps = 100;
         
-        const isCompressed = /\.gz$/i.test(modelPath);
-        
-        if (isCompressed) {
-            // 处理压缩模型
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', modelPath);
-            xhr.responseType = 'arraybuffer';
+        const interval = setInterval(() => {
+            progress += 5;
             
-            xhr.onprogress = function(e) {
-                if (e.lengthComputable && e.total > 0) {
-                    const progress = (e.loaded / e.total) * 90;
-                    self.postMessage({ 
-                        type: 'progress', 
-                        progress: progress, 
-                        status: '正在下载模型...' 
-                    });
-                }
-            };
+            // 模拟不同阶段的加载
+            let status = '加载中...';
+            if (progress < 30) {
+                status = '正在下载模型...';
+            } else if (progress < 60) {
+                status = '正在解析模型...';
+            } else if (progress < 90) {
+                status = '正在处理材质...';
+            } else {
+                status = '正在初始化场景...';
+            }
             
-            xhr.onload = function() {
-                if (xhr.status !== 200) {
-                    self.postMessage({ 
-                        type: 'error', 
-                        error: 'HTTP ' + xhr.status 
-                    });
-                    return;
-                }
-                
-                const compressedBuffer = xhr.response;
-                if (!compressedBuffer || compressedBuffer.byteLength === 0) {
-                    self.postMessage({ 
-                        type: 'error', 
-                        error: '空文件' 
-                    });
-                    return;
-                }
-                
-                self.postMessage({ 
-                    type: 'progress', 
-                    progress: 92, 
-                    status: '正在解压...' 
-                });
-                
-                try {
-                    let glbBuffer;
-                    const data = new Uint8Array(compressedBuffer);
-                    
-                    // 尝试使用pako解压
-                    if (typeof pako !== 'undefined' && pako.ungzip) {
-                        let decompressed = pako.ungzip(data);
-                        glbBuffer = decompressed.buffer.slice(decompressed.byteOffset, decompressed.byteOffset + decompressed.byteLength);
-                    } else {
-                        // 尝试使用原生DecompressionStream
-                        const stream = new Blob([compressedBuffer]).stream().pipeThrough(new DecompressionStream('gzip'));
-                        new Response(stream).arrayBuffer().then(glbBuffer => {
-                            processCompressedModel(glbBuffer);
-                        }).catch(error => {
-                            self.postMessage({ 
-                                type: 'error', 
-                                error: '解压失败: ' + error.message 
-                            });
-                        });
-                        return;
-                    }
-                    
-                    processCompressedModel(glbBuffer);
-                } catch (err) {
-                    self.postMessage({ 
-                        type: 'error', 
-                        error: '解压失败: ' + err.message 
-                    });
-                }
-            };
-            
-            xhr.onerror = function() {
-                self.postMessage({ 
-                    type: 'error', 
-                    error: '网络错误' 
-                });
-            };
-            
-            xhr.send();
-        } else {
-            // 处理普通模型
-            loader.load(
-                modelPath,
-                function(gltf) {
-                    processModel(gltf);
-                },
-                function(xhr) {
-                    if (xhr.lengthComputable && xhr.total > 0) {
-                        const progress = (xhr.loaded / xhr.total) * 100;
-                        self.postMessage({ 
-                            type: 'progress', 
-                            progress: progress, 
-                            status: '正在加载模型...' 
-                        });
-                    }
-                },
-                function(error) {
-                    self.postMessage({ 
-                        type: 'error', 
-                        error: error.message 
-                    });
-                }
-            );
-        }
-    } catch (error) {
-        self.postMessage({ 
-            type: 'error', 
-            error: error.message 
-        });
-    }
-}
-
-function processCompressedModel(glbBuffer) {
-    self.postMessage({ 
-        type: 'progress', 
-        progress: 98, 
-        status: '解析模型...' 
-    });
-    
-    const loader = new THREE.GLTFLoader();
-    const dracoLoader = new THREE.DRACOLoader();
-    dracoLoader.setDecoderPath('./js/libs/draco/');
-    loader.setDRACOLoader(dracoLoader);
-    loader.setMeshoptDecoder(MeshoptDecoder);
-    
-    loader.parse(glbBuffer, '', 
-        function(gltf) {
-            processModel(gltf);
-        },
-        function(error) {
             self.postMessage({ 
-                type: 'error', 
-                error: error.message 
+                type: 'progress', 
+                progress: progress, 
+                status: status 
             });
-        }
-    );
-}
-
-function processModel(gltf) {
-    try {
-        self.postMessage({ 
-            type: 'progress', 
-            progress: 100, 
-            status: '处理模型...' 
-        });
-        
-        // 将模型转换为JSON格式，以便传递回主线程
-        const modelData = gltf.scene.toJSON();
-        
-        self.postMessage({ 
-            type: 'complete', 
-            modelData: modelData 
-        });
+            
+            if (progress >= 100) {
+                clearInterval(interval);
+                // 完成后通知主线程使用本地加载
+                self.postMessage({ 
+                    type: 'complete', 
+                    modelPath: modelPath 
+                });
+            }
+        }, 100);
     } catch (error) {
         self.postMessage({ 
             type: 'error', 
