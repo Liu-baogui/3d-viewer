@@ -2281,8 +2281,8 @@ let bloomEnabled = true;
             // 创建增强材质（基于原始烘焙材质）
             createEnhancedBakedMaterial(mesh, type);
         } 
-        // 对有纹理的门，保留原始纹理
-        else if ((type === 'cabinetDoor' || type === 'slidingDoor') && hasTexture) {
+        // 对有纹理的门和抽屉，保留原始纹理
+        else if ((type === 'cabinetDoor' || type === 'slidingDoor' || type === 'drawer') && hasTexture) {
             // 保存原始材质
             mesh.userData.originalMaterial = originalMaterial.clone();
             mesh.userData.hasBakedTexture = true;
