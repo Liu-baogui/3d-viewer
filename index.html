@@ -4421,7 +4421,7 @@ console.log('初始化时应用阴影模糊值:', blurValue);
                 effectiveMouseDeltaX = mouseDeltaX;
             }
             
-            const rotateAngle = effectiveMouseDeltaX * Math.PI * 0.5; // 按要求减小灵敏度
+            const rotateAngle = effectiveMouseDeltaX * Math.PI * 0.8; // 提高灵敏度
             const maxAngle = 85 * Math.PI / 180;
             
             // 确保从初始旋转开始计算，而不是从当前旋转
@@ -4621,7 +4621,7 @@ console.log('初始化时应用阴影模糊值:', blurValue);
                         effectiveMouseDeltaX = mouseDeltaX;
                     }
                     
-                    const rotateAngle = effectiveMouseDeltaX * Math.PI * 0.5;
+                    const rotateAngle = effectiveMouseDeltaX * Math.PI * 0.8; // 提高灵敏度
                     const maxAngle = 85 * Math.PI / 180;
                     
                     if (!draggedObject.userData.initialRotation) {
