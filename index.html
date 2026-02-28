@@ -2287,46 +2287,37 @@ let bloomEnabled = true;
             mesh.userData.originalMaterial = originalMaterial.clone();
             mesh.userData.hasBakedTexture = true;
             
-            // 创建基于原始纹理的增强材质
-            const enhancedMaterial = new THREE.MeshStandardMaterial({
-                map: originalMaterial.map,
-                emissiveMap: originalMaterial.emissiveMap,
-                roughnessMap: originalMaterial.roughnessMap,
-                metalnessMap: originalMaterial.metalnessMap,
-                normalMap: originalMaterial.normalMap,
-                aoMap: originalMaterial.aoMap,
-                color: originalMaterial.color || 0x3a4558,
-                metalness: 0.4,
-                roughness: 0.6,
-                transparent: originalMaterial.transparent || false,
-                opacity: originalMaterial.opacity || 1.0,
-                envMapIntensity: 0.2,
-                side: THREE.DoubleSide
-            });
+            // 直接使用原始材质，不创建新材质
+            // 这样可以确保所有原始属性都被保留
             
-            enhancedMaterial.envMap = envMap;
-            enhancedMaterial.needsUpdate = true;
-            
-            mesh.material = enhancedMaterial;
-        }
-        // 其他类型或无烘焙贴图，使用标准材质
-        else {
-            if (type === 'cabinetDoor') {
-                applyCabinetDoorMaterial(mesh);
-            } else if (type === 'drawer') {
-                applyDrawerMaterial(mesh);
-            } else if (type === 'slidingDoor') {
-                // 为推拉门创建标准材质
-                mesh.material = new THREE.MeshStandardMaterial({
-                    color: mesh.material.color || 0x3a4558,
-                    metalness: 0.4,
-                    roughness: 0.6,
-                    transparent: false,
-                    opacity: 1.0,
-                    envMapIntensity: 0.2,
-                    side: THREE.DoubleSide
-                });
+            // 确保使用标准材质
+            if (!(mesh.material instanceof THREE.MeshStandardMaterial)) {
+                const newMaterial = new THREE.MeshStandardMaterial();
+                // 复制所有可转移的属性
+                Object.assign(newMaterial, mesh.material);
+                // 复制贴图
+                newMaterial.map = mesh.material.map;
+                newMaterial.emissiveMap = mesh.material.emissiveMap;
+                newMaterial.roughnessMap = mesh.material.roughnessMap;
+                newMaterial.metalnessMap = mesh.material.metalnessMap;
+                newMaterial.normalMap = mesh.material.normalMap;
+                newMaterial.aoMap = mesh.material.aoMap;
+                mesh.material = newMaterial;
             }
+            
+            // 环境贴图会在loadHDRTexture函数中统一添加
+            // 这里只需要确保材质是标准材质即可
+            mesh.material.needsUpdate = true;
+        }
+        // 其他类型或无烘焙贴图，完全保留原始材质
+        else {
+            // 保存原始材质
+            mesh.userData.originalMaterial = mesh.material.clone();
+            
+            // 不进行任何增强，使用模型中定义的原始材质
+            // 只设置阴影属性
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
         }
     }
     
@@ -2461,6 +2452,15 @@ let bloomEnabled = true;
                         
                         // 添加到材质组（用于点击检测）
                         materialGroups.drawer.push(meshChild);
+                        
+                        // 根据材质名称分类到对应的材质组
+                        const meshName = meshChild.name ? meshChild.name.toLowerCase() : '';
+                        if (meshName.includes('metal')) {
+                            materialGroups.metal.push(meshChild);
+                        } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
+                            materialGroups.paint.push(meshChild);
+                        }
+                        
                         processedCount++;
                     }
                 });
@@ -2621,8 +2621,9 @@ let bloomEnabled = true;
                     processedCount++;
                 }
                 
-                // 检测屏幕（包含screen的名称）
-                else if (meshName.includes('screen') || meshName.includes('display') || meshName.includes('monitor')) {
+                // 检测屏幕（包含screen的名称，且排除非屏幕物体）
+                else if ((meshName.includes('screen') || meshName.includes('display') || meshName.includes('monitor')) && 
+                         !meshName.includes('panel') && !meshName.includes('cover') && !meshName.includes('frame')) {
                     // 检查是否有烘焙贴图
                     const hasBakedTexture = hasTexture(child.material);
                     
@@ -2649,17 +2650,42 @@ let bloomEnabled = true;
                     // 检查是否有烘焙贴图
                     const hasBakedTexture = hasTexture(child.material);
                     
-                    // 其他有烘焙贴图的部件
+                    // 其他有烘焙贴图的部件 - 保留原始烘焙材质
                     if (hasBakedTexture) {
-                        // 根据名称分类并使用标准材质
+                        // 保存原始材质
+                        child.userData = child.userData || {};
+                        child.userData.originalMaterial = child.material.clone();
+                        child.userData.hasBakedTexture = true;
+                        
+                        // 直接使用原始材质，不创建新材质
+                        // 这样可以确保所有原始属性都被保留
+                        
+                        // 确保使用标准材质
+                        if (!(child.material instanceof THREE.MeshStandardMaterial)) {
+                            const newMaterial = new THREE.MeshStandardMaterial();
+                            // 复制所有可转移的属性
+                            Object.assign(newMaterial, child.material);
+                            // 复制贴图
+                            newMaterial.map = child.material.map;
+                            newMaterial.emissiveMap = child.material.emissiveMap;
+                            newMaterial.roughnessMap = child.material.roughnessMap;
+                            newMaterial.metalnessMap = child.material.metalnessMap;
+                            newMaterial.normalMap = child.material.normalMap;
+                            newMaterial.aoMap = child.material.aoMap;
+                            child.material = newMaterial;
+                        }
+                        
+                        // 环境贴图会在loadHDRTexture函数中统一添加
+                        // 这里只需要确保材质是标准材质即可
+                        child.material.needsUpdate = true;
+                        
+                        // 根据名称分类
                         if (meshName.includes('metal')) {
                             materialGroups.metal.push(child);
-                            child.userData = { type: 'metal' };
-                            applyMetalMaterial(child);
+                            child.userData.type = 'metal';
                         } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
                             materialGroups.paint.push(child);
-                            child.userData = { type: 'paint' };
-                            applyPaintMaterial(child);
+                            child.userData.type = 'paint';
                         }
                         
                         processedCount++;
@@ -2667,17 +2693,19 @@ let bloomEnabled = true;
                     
                     // 原始的非烘焙贴图处理逻辑
                     else {
+                        // 保存原始材质
+                        child.userData = child.userData || {};
+                        child.userData.originalMaterial = child.material.clone();
+                        
+                        // 不进行任何增强，使用模型中定义的原始材质
+                        
+                        // 根据名称分类
                         if (meshName.includes('metal')) {
                             materialGroups.metal.push(child);
-                            child.userData = { type: 'metal' };
-                            applyMetalMaterial(child);
-                            processedCount++;
-                        }
-                        else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
+                            child.userData.type = 'metal';
+                        } else if (meshName.includes('paint') || meshName.includes('plastic') || meshName.includes('body')) {
                             materialGroups.paint.push(child);
-                            child.userData = { type: 'paint' };
-                            applyPaintMaterial(child);
-                            processedCount++;
+                            child.userData.type = 'paint';
                         }
 
                         // 启用阴影
@@ -2688,6 +2716,8 @@ let bloomEnabled = true;
                             child.geometry.computeBoundingBox();
                             child.geometry.computeBoundingSphere();
                         }
+                        
+                        processedCount++;
                     }
                 }
             }
@@ -2858,12 +2888,12 @@ let bloomEnabled = true;
         mesh.receiveShadow = true;
         
         mesh.material = new THREE.MeshStandardMaterial({
-            color: mesh.material.color || 0x4a5568,
-            metalness: 0.3,
-            roughness: 0.7,
+            color: mesh.material.color || 0x3a4558,
+            metalness: 0.4,
+            roughness: 0.6,
             transparent: false,
             opacity: 1.0,
-            envMapIntensity: 0.2,
+            envMapIntensity: 0.3,
             side: THREE.DoubleSide
         });
     }
@@ -2883,7 +2913,10 @@ let bloomEnabled = true;
                         if ((child.material.isMeshStandardMaterial || child.material.isMeshPhysicalMaterial) && 
                             child.userData && child.userData.type !== 'screen') {
                             child.material.envMap = envMap;
-                            child.material.envMapIntensity = envIntensity;
+                            // 对于有烘焙贴图的物体，保持其原始的envMapIntensity设置
+                            if (!child.userData.hasBakedTexture) {
+                                child.material.envMapIntensity = envIntensity;
+                            }
                             child.material.needsUpdate = true;
                         }
                     }
@@ -2921,7 +2954,8 @@ let bloomEnabled = true;
         metalRoughness = parseFloat(document.getElementById('metal-roughness-slider').value);
         
         materialGroups.metal.forEach(mesh => {
-            if (mesh.material && mesh.userData && !mesh.userData.hasBakedTexture) {
+            if (mesh.material && mesh.userData) {
+                // 对于有烘焙贴图的物体，只更新金属度和粗糙度，保留原始贴图
                 mesh.material.metalness = metalness;
                 mesh.material.roughness = Math.max(metalRoughness, 0.3);
                 mesh.material.needsUpdate = true;
@@ -2935,8 +2969,11 @@ let bloomEnabled = true;
         paintRoughness = parseFloat(document.getElementById('paint-roughness-slider').value);
         
         materialGroups.paint.forEach(mesh => {
-            if (mesh.material && mesh.userData && mesh.userData.originalColor && !mesh.userData.hasBakedTexture) {
-                mesh.material.color = mesh.userData.originalColor.clone().multiplyScalar(paintBrightness);
+            if (mesh.material && mesh.userData && mesh.userData.originalColor) {
+                // 对于有烘焙贴图的物体，只更新粗糙度，保留原始颜色和贴图
+                if (!mesh.userData.hasBakedTexture) {
+                    mesh.material.color = mesh.userData.originalColor.clone().multiplyScalar(paintBrightness);
+                }
                 mesh.material.roughness = paintRoughness;
                 mesh.material.needsUpdate = true;
             }
