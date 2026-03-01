@@ -1886,6 +1886,9 @@ let bloomEnabled = true;
         return new Worker(workerUrl);
     }
 
+    // 全局Web Worker引用
+    let currentModelWorker = null;
+    
     // 加载模型函数（支持 .glb、.glb.gz 及 Draco 压缩网格）
     function loadModel(modelPath = 'models/default_model.glb') {
         // 显示加载界面
@@ -1901,9 +1904,20 @@ let bloomEnabled = true;
         `;
         setLoadingProgress(0, '正在准备加载...');
         
+        // 终止之前的Web Worker
+        if (currentModelWorker) {
+            try {
+                currentModelWorker.terminate();
+            } catch (error) {
+                console.error('Error terminating worker:', error);
+            }
+            currentModelWorker = null;
+        }
+        
         try {
             // 创建内联Web Worker
             const modelWorker = createModelWorker();
+            currentModelWorker = modelWorker;
             
             modelWorker.onmessage = function(e) {
                 const { type, progress, status, buffer, isCompressed, error } = e.data;
@@ -1915,11 +1929,29 @@ let bloomEnabled = true;
                     case 'complete':
                         // 模型加载完成，在主线程中处理
                         loadModelFromBuffer(buffer, isCompressed, modelPath);
+                        // 终止Web Worker
+                        if (currentModelWorker === modelWorker) {
+                            try {
+                                modelWorker.terminate();
+                                currentModelWorker = null;
+                            } catch (error) {
+                                console.error('Error terminating worker:', error);
+                            }
+                        }
                         break;
                     case 'error':
                         console.error('Worker loading error:', error);
                         // 回退到主线程加载
                         loadModelActual(modelPath);
+                        // 终止Web Worker
+                        if (currentModelWorker === modelWorker) {
+                            try {
+                                modelWorker.terminate();
+                                currentModelWorker = null;
+                            } catch (error) {
+                                console.error('Error terminating worker:', error);
+                            }
+                        }
                         break;
                     default:
                         break;
@@ -1930,6 +1962,15 @@ let bloomEnabled = true;
                 console.error('Worker error:', error);
                 // 回退到主线程加载
                 loadModelActual(modelPath);
+                // 终止Web Worker
+                if (currentModelWorker === modelWorker) {
+                    try {
+                        modelWorker.terminate();
+                        currentModelWorker = null;
+                    } catch (error) {
+                        console.error('Error terminating worker:', error);
+                    }
+                }
             };
             
             // 发送加载请求
