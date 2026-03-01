@@ -1739,43 +1739,76 @@ let bloomEnabled = true;
             
             function loadModel(modelPath) {
                 try {
+                    // 验证模型路径
+                    if (!modelPath || typeof modelPath !== 'string' || modelPath.trim() === '') {
+                        self.postMessage({ 
+                            type: 'error', 
+                            error: '无效的模型路径' 
+                        });
+                        return;
+                    }
+                    
                     const isCompressed = /\.gz$/i.test(modelPath);
                     
                     if (isCompressed) {
                         // 处理压缩模型
-                        const xhr = new XMLHttpRequest();
-                        xhr.open('GET', modelPath);
-                        xhr.responseType = 'arraybuffer';
+                        loadModelFile(modelPath, true);
+                    } else {
+                        // 处理普通模型
+                        loadModelFile(modelPath, false);
+                    }
+                } catch (error) {
+                    self.postMessage({ 
+                        type: 'error', 
+                        error: error.message 
+                    });
+                }
+            }
+            
+            function loadModelFile(modelPath, isCompressed) {
+                try {
+                    // 验证URL格式
+                    try {
+                        new URL(modelPath, self.location.origin);
+                    } catch (urlError) {
+                        // 如果不是绝对URL，尝试作为相对URL处理
+                        // 这里不抛出错误，让xhr尝试加载
+                    }
+                    
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('GET', modelPath);
+                    xhr.responseType = 'arraybuffer';
+                    
+                    xhr.onprogress = function(e) {
+                        if (e.lengthComputable && e.total > 0) {
+                            const progress = isCompressed ? (e.loaded / e.total) * 90 : (e.loaded / e.total) * 100;
+                            self.postMessage({ 
+                                type: 'progress', 
+                                progress: progress, 
+                                status: isCompressed ? '正在下载模型...' : '正在加载模型...' 
+                            });
+                        }
+                    };
+                    
+                    xhr.onload = function() {
+                        if (xhr.status !== 200) {
+                            self.postMessage({ 
+                                type: 'error', 
+                                error: 'HTTP ' + xhr.status 
+                            });
+                            return;
+                        }
                         
-                        xhr.onprogress = function(e) {
-                            if (e.lengthComputable && e.total > 0) {
-                                const progress = (e.loaded / e.total) * 90;
-                                self.postMessage({ 
-                                    type: 'progress', 
-                                    progress: progress, 
-                                    status: '正在下载模型...' 
-                                });
-                            }
-                        };
+                        const buffer = xhr.response;
+                        if (!buffer || buffer.byteLength === 0) {
+                            self.postMessage({ 
+                                type: 'error', 
+                                error: '空文件' 
+                            });
+                            return;
+                        }
                         
-                        xhr.onload = function() {
-                            if (xhr.status !== 200) {
-                                self.postMessage({ 
-                                    type: 'error', 
-                                    error: 'HTTP ' + xhr.status 
-                                });
-                                return;
-                            }
-                            
-                            const compressedBuffer = xhr.response;
-                            if (!compressedBuffer || compressedBuffer.byteLength === 0) {
-                                self.postMessage({ 
-                                    type: 'error', 
-                                    error: '空文件' 
-                                });
-                                return;
-                            }
-                            
+                        if (isCompressed) {
                             self.postMessage({ 
                                 type: 'progress', 
                                 progress: 92, 
@@ -1784,7 +1817,7 @@ let bloomEnabled = true;
                             
                             try {
                                 let glbBuffer;
-                                const data = new Uint8Array(compressedBuffer);
+                                const data = new Uint8Array(buffer);
                                 
                                 // 尝试使用pako解压
                                 if (typeof pako !== 'undefined' && pako.ungzip) {
@@ -1792,7 +1825,7 @@ let bloomEnabled = true;
                                     glbBuffer = decompressed.buffer.slice(decompressed.byteOffset, decompressed.byteOffset + decompressed.byteLength);
                                 } else {
                                     // 尝试使用原生DecompressionStream
-                                    const stream = new Blob([compressedBuffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+                                    const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
                                     new Response(stream).arrayBuffer().then(glbBuffer => {
                                         self.postMessage({ 
                                             type: 'complete', 
@@ -1819,67 +1852,23 @@ let bloomEnabled = true;
                                     error: '解压失败: ' + err.message 
                                 });
                             }
-                        };
-                        
-                        xhr.onerror = function() {
-                            self.postMessage({ 
-                                type: 'error', 
-                                error: '网络错误' 
-                            });
-                        };
-                        
-                        xhr.send();
-                    } else {
-                        // 处理普通模型
-                        const xhr = new XMLHttpRequest();
-                        xhr.open('GET', modelPath);
-                        xhr.responseType = 'arraybuffer';
-                        
-                        xhr.onprogress = function(e) {
-                            if (e.lengthComputable && e.total > 0) {
-                                const progress = (e.loaded / e.total) * 100;
-                                self.postMessage({ 
-                                    type: 'progress', 
-                                    progress: progress, 
-                                    status: '正在加载模型...' 
-                                });
-                            }
-                        };
-                        
-                        xhr.onload = function() {
-                            if (xhr.status !== 200) {
-                                self.postMessage({ 
-                                    type: 'error', 
-                                    error: 'HTTP ' + xhr.status 
-                                });
-                                return;
-                            }
-                            
-                            const buffer = xhr.response;
-                            if (!buffer || buffer.byteLength === 0) {
-                                self.postMessage({ 
-                                    type: 'error', 
-                                    error: '空文件' 
-                                });
-                                return;
-                            }
-                            
+                        } else {
                             self.postMessage({ 
                                 type: 'complete', 
                                 buffer: buffer, 
                                 isCompressed: false 
                             });
-                        };
-                        
-                        xhr.onerror = function() {
-                            self.postMessage({ 
-                                type: 'error', 
-                                error: '网络错误' 
-                            });
-                        };
-                        
-                        xhr.send();
-                    }
+                        }
+                    };
+                    
+                    xhr.onerror = function() {
+                        self.postMessage({ 
+                            type: 'error', 
+                            error: '网络错误' 
+                        });
+                    };
+                    
+                    xhr.send();
                 } catch (error) {
                     self.postMessage({ 
                         type: 'error', 
